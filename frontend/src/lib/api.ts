@@ -210,6 +210,18 @@ export function resumePaperMode(): Promise<SystemStatus> {
   return request<SystemStatus>("/api/system/resume", { method: "POST" });
 }
 
+export type UpdateRiskLimitsRequest = Partial<RiskLimits>;
+
+export function updateRiskLimits(limits: UpdateRiskLimitsRequest): Promise<SystemStatus> {
+  return request<SystemStatus>("/api/system/risk-limits", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(limits)
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Market data endpoints
 // ---------------------------------------------------------------------------

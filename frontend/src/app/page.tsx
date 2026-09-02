@@ -42,6 +42,7 @@ import {
   getTradingState,
   resetPaperPortfolio,
   resumePaperMode,
+  updateRiskLimits,
   runBacktest,
   runTradingStep,
   startTradingAutomation,
@@ -1313,6 +1314,32 @@ function BotStatus({ status }: { status: SystemStatus | null }) {
 
 function RiskPanel({ status }: { status: SystemStatus | null }) {
   const limits = status?.risk_limits;
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState<any>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (limits && !isEditing) {
+      setFormData(limits);
+    }
+  }, [limits, isEditing]);
+
+  const handleChange = (key: string, value: string) => {
+    setFormData((prev: any) => ({ ...prev, [key]: parseFloat(value) || 0 }));
+  };
+
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      await updateRiskLimits(formData);
+      setIsEditing(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <section className="rounded-md border border-line bg-panel p-4">
       <div className="flex items-center justify-between gap-3">
@@ -1320,17 +1347,57 @@ function RiskPanel({ status }: { status: SystemStatus | null }) {
           <h2 className="text-sm font-black uppercase tracking-normal">Risk Durumu</h2>
           <p className="text-xs text-textMuted">Deterministik güvenlik sınırları</p>
         </div>
-        <ShieldCheck className="h-5 w-5 text-accent" aria-hidden="true" />
+        {!isEditing ? (
+          <Button variant="secondary" size="sm" onClick={() => setIsEditing(true)}>Düzenle</Button>
+        ) : (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={isSaving}>İptal</Button>
+            <Button variant="primary" size="sm" onClick={() => void handleSave()} disabled={isSaving}>
+              {isSaving ? "Kaydediliyor..." : "Kaydet"}
+            </Button>
+          </div>
+        )}
       </div>
       <div className="mt-4 grid gap-3 text-sm">
-        <StatusLine label="İşlem başına risk" value={formatPercent(limits?.risk_per_trade)} />
-        <StatusLine label="Maks. pozisyon" value={formatPercent(limits?.max_single_position_pct)} />
-        <StatusLine label="Maks. maruziyet" value={formatPercent(limits?.max_total_exposure_pct)} />
-        <StatusLine label="Açık pozisyon sınırı" value={limits ? String(limits.max_open_positions) : "-"} />
-        <StatusLine label="Günlük zarar limiti" value={formatPercent(limits?.daily_loss_limit_pct)} />
-        <StatusLine label="Maks. gerileme" value={formatPercent(limits?.max_drawdown_limit_pct)} />
-        <StatusLine label="Minimum R/R" value={limits ? String(limits.min_risk_reward) : "-"} />
-        <StatusLine label="Zarar durdur" value={limits?.stop_loss_required ? "Zorunlu" : "-"} />
+        {!isEditing ? (
+          <>
+            <StatusLine label="İşlem başına risk" value={formatPercent(limits?.risk_per_trade)} />
+            <StatusLine label="Maks. pozisyon" value={formatPercent(limits?.max_single_position_pct)} />
+            <StatusLine label="Maks. maruziyet" value={formatPercent(limits?.max_total_exposure_pct)} />
+            <StatusLine label="Açık pozisyon sınırı" value={limits ? String(limits.max_open_positions) : "-"} />
+            <StatusLine label="Günlük zarar limiti" value={formatPercent(limits?.daily_loss_limit_pct)} />
+            <StatusLine label="Maks. gerileme" value={formatPercent(limits?.max_drawdown_limit_pct)} />
+            <StatusLine label="Minimum R/R" value={limits ? String(limits.min_risk_reward) : "-"} />
+            <StatusLine label="Zarar durdur" value={limits?.stop_loss_required ? "Zorunlu" : "-"} />
+          </>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">İşlem başına risk (örn: 0.01)</label>
+              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.risk_per_trade ?? ""} onChange={(e) => handleChange("risk_per_trade", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Maks. pozisyon (örn: 0.05)</label>
+              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_single_position_pct ?? ""} onChange={(e) => handleChange("max_single_position_pct", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Maks. maruziyet (örn: 0.2)</label>
+              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_total_exposure_pct ?? ""} onChange={(e) => handleChange("max_total_exposure_pct", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Açık pozisyon sınırı</label>
+              <input type="number" step="1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_open_positions ?? ""} onChange={(e) => handleChange("max_open_positions", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Maks. gerileme (örn: 0.1)</label>
+              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_drawdown_limit_pct ?? ""} onChange={(e) => handleChange("max_drawdown_limit_pct", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Minimum R/R (örn: 1.5)</label>
+              <input type="number" step="0.1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.min_risk_reward ?? ""} onChange={(e) => handleChange("min_risk_reward", e.target.value)} />
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

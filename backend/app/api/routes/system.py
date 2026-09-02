@@ -76,3 +76,28 @@ def resume_paper_mode() -> SystemStatusResponse:
     snapshot = trading_control.resume_paper_mode()
     logger.info("paper_trading_resumed")
     return build_status(get_settings(), snapshot)
+
+
+class UpdateRiskLimitsRequest(BaseModel):
+    risk_per_trade: float | None = None
+    max_single_position_pct: float | None = None
+    max_total_exposure_pct: float | None = None
+    max_open_positions: int | None = None
+    daily_loss_limit_pct: float | None = None
+    max_drawdown_limit_pct: float | None = None
+    min_risk_reward: float | None = None
+    cooldown_after_losses: int | None = None
+
+
+@router.put("/risk-limits", response_model=SystemStatusResponse)
+def update_risk_limits(req: UpdateRiskLimitsRequest) -> SystemStatusResponse:
+    settings = get_settings()
+    updates = req.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        if hasattr(settings, key):
+            setattr(settings, key, value)
+    
+    logger.info("risk_limits_updated", extra={"updates": updates})
+    return build_status(settings, trading_control.snapshot())
+
+
