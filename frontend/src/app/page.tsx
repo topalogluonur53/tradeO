@@ -1348,11 +1348,11 @@ function RiskPanel({ status }: { status: SystemStatus | null }) {
           <p className="text-xs text-textMuted">Deterministik güvenlik sınırları</p>
         </div>
         {!isEditing ? (
-          <Button variant="secondary" size="sm" onClick={() => setIsEditing(true)}>Düzenle</Button>
+          <Button variant="secondary" className="h-8 text-xs" onClick={() => setIsEditing(true)}>Düzenle</Button>
         ) : (
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={isSaving}>İptal</Button>
-            <Button variant="primary" size="sm" onClick={() => void handleSave()} disabled={isSaving}>
+            <Button variant="secondary" className="h-8 text-xs" onClick={() => setIsEditing(false)} disabled={isSaving}>İptal</Button>
+            <Button variant="primary" className="h-8 text-xs" onClick={() => void handleSave()} disabled={isSaving}>
               {isSaving ? "Kaydediliyor..." : "Kaydet"}
             </Button>
           </div>
