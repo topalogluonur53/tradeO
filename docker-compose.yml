@@ -25,6 +25,7 @@ services:
       retries: 5
 
   backend:
+    image: tradeo-backend:latest
     build:
       context: ./backend
     env_file:
@@ -39,6 +40,7 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   worker:
+    image: tradeo-worker:latest
     build:
       context: ./backend
     env_file:
@@ -51,6 +53,7 @@ services:
     command: ["python", "-m", "app.worker"]
 
   frontend:
+    image: tradeo-frontend:latest
     build:
       context: ./frontend
     environment:
