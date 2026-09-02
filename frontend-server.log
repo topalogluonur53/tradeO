@@ -1,0 +1,23 @@
+
+> nexus-ai-trader-frontend@0.1.0 dev
+> next dev --hostname 127.0.0.1 --port 3000
+
+▲ Next.js 16.3.4 (Turbopack)
+- Local:         http://127.0.0.1:3000
+- Network:       http://127.0.0.1:3000
+✓ Ready in 690ms
+✓ Running next.config.mjs took 14ms
+Creating turbopack project { dir: 'C:\\Kodlamalar\\TradeO\\frontend', testMode: true }
+
+✓ Generated AGENTS.md and CLAUDE.md for AI agents. Set `agentRules: false` in next.config to disable.
+ GET / 200 in 53ms (next.js: 9ms, application-code: 44ms)
+ GET / 200 in 45ms (next.js: 4ms, application-code: 41ms)
+ GET / 200 in 100ms (next.js: 8ms, application-code: 92ms)
+ GET / 200 in 35ms (next.js: 7ms, application-code: 28ms)
+ GET / 200 in 35ms (next.js: 7ms, application-code: 28ms)
+ GET / 200 in 29ms (next.js: 5ms, application-code: 23ms)
+✓ Compiled in 31ms
+ GET / 200 in 72ms (next.js: 15ms, application-code: 57ms)
+ GET / 200 in 155ms (next.js: 9ms, application-code: 146ms)
+ GET / 200 in 129ms (next.js: 10ms, application-code: 119ms)
+[?25h

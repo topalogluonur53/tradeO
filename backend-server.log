@@ -1,0 +1,5 @@
+{"asctime": "2026-09-02 20:54:40,208", "levelname": "INFO", "name": "app.main", "message": "application_configured", "environment": "development"}
+INFO:     127.0.0.1:63554 - "GET /health HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:52107 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51504 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51504 - "GET /favicon.ico HTTP/1.1" 404 Not Found
