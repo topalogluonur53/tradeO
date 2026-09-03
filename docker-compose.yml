@@ -39,7 +39,7 @@ services:
       LOG_LEVEL: INFO
       DATABASE_URL: postgresql+psycopg://nexus:nexus_password@postgres:5432/nexus_ai_trader
       REDIS_URL: redis://redis:6379/0
-      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.164:3000
       TRADING_MODE: paper
       KILL_SWITCH_ENABLED: "false"
       MARKET_DATA_BASE_URL: https://data-api.binance.vision
@@ -102,7 +102,7 @@ services:
     restart: unless-stopped
     environment:
       API_URL: http://backend:8000/api
-      NEXT_PUBLIC_API_BASE_URL: ""
+      NEXT_PUBLIC_API_BASE_URL: http://192.168.1.164:8000/api
     ports:
       - "3000:3000"
     depends_on:
