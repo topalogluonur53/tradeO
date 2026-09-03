@@ -1635,9 +1635,9 @@ function createRiskLimitFormData(limits: RiskLimits | null | undefined): Editabl
 }
 
 function validateRiskLimitForm(formData: EditableRiskLimits): string | null {
-  const numericValues = Object.values(formData);
-  if (numericValues.some((value) => !Number.isFinite(value))) {
-    return "Tüm risk limitleri sayısal olmalı.";
+  const values = Object.values(formData);
+  if (values.some((value) => typeof value !== "boolean" && !Number.isFinite(value))) {
+    return "Tüm risk limitleri geçerli değerler (sayı veya onay) olmalı.";
   }
 
   if (formData.risk_per_trade <= 0 || formData.risk_per_trade > 0.05) {
