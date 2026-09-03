@@ -1600,7 +1600,12 @@ const defaultRiskLimitFormData: EditableRiskLimits = {
   strategy_bollinger_width: 0.08,
   strategy_rsi_min: 35.0,
   strategy_rsi_max: 70.0,
-  strategy_volume_multiplier: 0.6
+  strategy_volume_multiplier: 0.6,
+  strategy_macd_enabled: false,
+  strategy_stoch_enabled: false,
+  mtf_enabled: false,
+  trailing_stop_enabled: false,
+  trailing_stop_distance_pct: 0.03
 };
 
 function createRiskLimitFormData(limits: RiskLimits | null | undefined): EditableRiskLimits {

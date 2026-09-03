@@ -16,6 +16,11 @@ export type RiskLimits = {
   strategy_rsi_min: number;
   strategy_rsi_max: number;
   strategy_volume_multiplier: number;
+  strategy_macd_enabled: boolean;
+  strategy_stoch_enabled: boolean;
+  mtf_enabled: boolean;
+  trailing_stop_enabled: boolean;
+  trailing_stop_distance_pct: number;
 };
 
 export type SystemStatus = {
