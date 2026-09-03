@@ -31,15 +31,19 @@ export function TradingChart({ symbol = "BTCUSDT", interval = "1h", loading = fa
   const cleanSymbol = symbol.replace("-", "").toUpperCase();
   const widgetSymbol = `BINANCE:${cleanSymbol}`;
 
+  // Unique key so React remounts the widget when symbol or interval changes
+  const chartKey = `${cleanSymbol}_${tvInterval}`;
+  const containerId = `tv_chart_${cleanSymbol}_${tvInterval}`;
+
   return (
     <section className="relative min-h-[460px] w-full overflow-hidden rounded-md border border-line bg-[#101722] shadow-terminal">
       {/* We keep the container styled for dark theme */}
-      <div className="absolute inset-0">
+      <div className="absolute inset-0" key={chartKey}>
         <AdvancedRealTimeChart
           symbol={widgetSymbol}
           theme="dark"
           interval={tvInterval}
-          container_id="tv_chart_container"
+          container_id={containerId}
           width="100%"
           height="100%"
           allow_symbol_change={false}

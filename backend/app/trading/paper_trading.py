@@ -312,6 +312,8 @@ class PaperTradingService:
             self.last_action = result.action
             self.last_reason = result.reason
             self.exchange = "all"
+            if result.signal:
+                self._remember_scan_symbol(result.signal.symbol)
             return result
 
         fallback_series = build_offline_candles(

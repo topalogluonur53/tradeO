@@ -979,7 +979,7 @@ function MarketsSection({
             onIntervalChange={onMarketIntervalChange}
             onRefresh={onRefreshMarket}
           />
-          <TradingChart candles={marketCandles} loading={marketLoading} error={marketError} />
+          <TradingChart symbol={marketSymbol} interval={marketInterval} candles={marketCandles} loading={marketLoading} error={marketError} />
         </div>
         <div className="grid gap-5">
           <InfoCard icon={Database} title="Public Candles" badge={marketError ? "Hata" : "Bağlı"} badgeTone={marketError ? "warning" : "paper"}>

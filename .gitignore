@@ -13,3 +13,4 @@ dist/
 coverage/
 postgres_data/
 redis_data/
+*.db
