@@ -826,7 +826,7 @@ function Dashboard({
 
   return (
     <div className="space-y-5">
-      {/* --- Kar / Zarar Özet Kutucukları --- */}
+      {/* --- Kompakt Özet Kutucukları --- */}
       {portfolio && (() => {
         const initialEquity = 10_000;
         const totalPnl = portfolio.equity - initialEquity;
@@ -838,51 +838,58 @@ function Dashboard({
         const winRate = totalTrades > 0 ? (winTrades / totalTrades) * 100 : 0;
         const drawdownPct = portfolio.peak_equity > 0 ? (portfolio.peak_equity - portfolio.equity) / portfolio.peak_equity : 0;
         return (
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div className={`rounded-lg border p-4 ${totalPnl >= 0 ? 'border-emerald-500/30 bg-emerald-500/8' : 'border-rose-500/30 bg-rose-500/8'}`}>
               <p className="text-xs font-bold uppercase text-textMuted">Toplam Kâr / Zarar</p>
-              <p className={`mt-2 text-3xl font-black tracking-tight ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <p className={`mt-2 text-2xl font-black tracking-tight ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {totalPnl >= 0 ? '+' : ''}{formatMoney(totalPnl)}
               </p>
-              <p className={`mt-1 text-sm font-semibold ${totalPnl >= 0 ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
-                {totalPnl >= 0 ? '▲' : '▼'} {formatSignedPercent(totalPnlPct)}
+              <p className={`mt-1 text-xs font-semibold ${totalPnl >= 0 ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
+                {totalPnl >= 0 ? '▲' : '▼'} {formatSignedPercent(totalPnlPct)} (Bakiye: {formatMoney(portfolio.equity)})
               </p>
             </div>
             <div className={`rounded-lg border p-4 ${dailyPnl >= 0 ? 'border-emerald-500/30 bg-emerald-500/8' : 'border-rose-500/30 bg-rose-500/8'}`}>
               <p className="text-xs font-bold uppercase text-textMuted">Günlük Kâr / Zarar</p>
-              <p className={`mt-2 text-3xl font-black tracking-tight ${dailyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              <p className={`mt-2 text-2xl font-black tracking-tight ${dailyPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {dailyPnl >= 0 ? '+' : ''}{formatMoney(dailyPnl)}
               </p>
-              <p className="mt-1 text-sm text-textMuted">
+              <p className="mt-1 text-xs text-textMuted">
                 {totalTrades} işlem tamamlandı
               </p>
             </div>
             <div className="rounded-lg border border-line bg-panel p-4">
               <p className="text-xs font-bold uppercase text-textMuted">Kazanma Oranı</p>
-              <p className="mt-2 text-3xl font-black tracking-tight text-textPrimary">{winRate.toFixed(1)}%</p>
-              <p className="mt-1 text-sm text-textMuted">
+              <p className="mt-2 text-2xl font-black tracking-tight text-textPrimary">{winRate.toFixed(1)}%</p>
+              <p className="mt-1 text-xs text-textMuted">
                 <span className="text-emerald-400">{winTrades}W</span> / <span className="text-rose-400">{lossTrades}L</span>
               </p>
             </div>
             <div className={`rounded-lg border p-4 ${drawdownPct > 0.05 ? 'border-rose-500/30 bg-rose-500/8' : 'border-line bg-panel'}`}>
-              <p className="text-xs font-bold uppercase text-textMuted">Maks. Düşüş (Drawdown)</p>
-              <p className={`mt-2 text-3xl font-black tracking-tight ${drawdownPct > 0.05 ? 'text-rose-400' : 'text-textPrimary'}`}>{formatPercent(drawdownPct)}</p>
-              <p className="mt-1 text-sm text-textMuted">
+              <p className="text-xs font-bold uppercase text-textMuted">Maks. Düşüş</p>
+              <p className={`mt-2 text-2xl font-black tracking-tight ${drawdownPct > 0.05 ? 'text-rose-400' : 'text-textPrimary'}`}>{formatPercent(drawdownPct)}</p>
+              <p className="mt-1 text-xs text-textMuted">
                 Zirve: {formatMoney(portfolio.peak_equity)}
               </p>
+            </div>
+            <div className="rounded-lg border border-line bg-panel p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-xs font-bold uppercase text-textMuted">Açık Pozisyon</p>
+                <span className={`h-2 w-2 rounded-full ${automation?.running ? "bg-accent" : "bg-slate-500"}`} />
+              </div>
+              <p className="mt-2 text-2xl font-black tracking-tight text-textPrimary">{portfolio.open_positions.length}</p>
+              <p className="mt-1 text-xs text-textMuted">{automation?.running ? "Bot çalışıyor" : "Bot kapalı"}</p>
+            </div>
+            <div className="rounded-lg border border-line bg-panel p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-xs font-bold uppercase text-textMuted">Son Sinyal</p>
+                <span className={`h-2 w-2 rounded-full ${lastSignalSide === "BUY" ? "bg-accent" : "bg-slate-500"}`} />
+              </div>
+              <p className="mt-2 text-2xl font-black tracking-tight text-textPrimary">{lastSignalSide}</p>
+              <p className="mt-1 truncate text-xs text-textMuted">{lastTradingAction}</p>
             </div>
           </section>
         );
       })()}
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Metric label="Sembol" value={marketSymbol} helper={`${formatExchange(marketExchange)} / ${marketInterval}`} tone="paper" />
-        <Metric label="Son Fiyat" value={latest ? formatPrice(latest.close) : "-"} helper="Public market data" tone="paper" />
-        <Metric label="Son Mum" value={formatSignedPercent(changePct)} helper="Önceki muma göre" tone={changePct && changePct < 0 ? "danger" : "paper"} />
-        <Metric label="Paper Equity" value={portfolio ? formatMoney(portfolio.equity) : "-"} helper="Simülasyon bakiyesi" tone="paper" />
-        <Metric label="Açık Pozisyon" value={portfolio ? String(portfolio.open_positions.length) : "0"} helper={automation?.running ? "Bot çalışıyor" : "Bot kapalı"} tone={automation?.running ? "paper" : "neutral"} />
-        <Metric label="Son Sinyal" value={lastSignalSide} helper={lastTradingAction} tone={lastSignalSide === "BUY" ? "paper" : "neutral"} />
-      </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-3">
@@ -895,7 +902,7 @@ function Dashboard({
             onIntervalChange={onMarketIntervalChange}
             onRefresh={onRefreshMarket}
           />
-          <TradingChart candles={marketCandles} loading={marketLoading} error={marketError} />
+          <TradingChart symbol={marketSymbol} interval={marketInterval} candles={marketCandles} loading={marketLoading} error={marketError} />
         </div>
         <div className="grid gap-5">
           <BotStatus status={status} automation={automation} />
