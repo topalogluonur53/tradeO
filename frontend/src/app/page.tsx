@@ -60,9 +60,12 @@ import {
   type SystemStatus,
   type TradingSignal,
   getToken,
-  clearToken
+  clearToken,
+  getCurrentUser,
+  type UserResponse
 } from "@/lib/api";
 import { useRouter } from "next/navigation";
+import { ChangePasswordForm, UserManagement } from "@/components/user-management";
 
 type NavigationId =
   | "dashboard"
@@ -138,6 +141,7 @@ export default function Home() {
 
   const [activeSection, setActiveSection] = useState<NavigationId>("dashboard");
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [systemLoading, setSystemLoading] = useState(true);
   const [systemError, setSystemError] = useState<string | null>(null);
@@ -191,6 +195,21 @@ export default function Home() {
       ...current
     ].slice(0, 16));
   }, []);
+
+  const loadUser = useCallback(async () => {
+    if (getToken()) {
+      try {
+        const user = await getCurrentUser();
+        setCurrentUser(user);
+      } catch (e) {
+        console.error("Failed to fetch user", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUser();
+  }, [loadUser]);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -542,6 +561,14 @@ export default function Home() {
               </div>
 
               <div className="flex flex-wrap items-center justify-end gap-2">
+                {currentUser && (
+                  <Badge tone="neutral">
+                    {currentUser.username} {currentUser.is_admin ? "(Admin)" : ""}
+                  </Badge>
+                )}
+                <Button variant="ghost" onClick={handleLogout} className="mr-2 text-rose-100 hover:text-rose-200">
+                  Çıkış
+                </Button>
                 <ConnectionBadge status={status} error={systemError} loading={systemLoading} />
                 <Badge tone={marketError ? "warning" : "paper"}>{marketError ? "PİYASA VERİSİ YOK" : marketSourceLabel}</Badge>
                 <Button variant="secondary" disabled={systemLoading || marketLoading} onClick={() => void refreshAll()} aria-label="Sistemi yenile">
@@ -571,6 +598,7 @@ export default function Home() {
             ) : (
               <TerminalSection
                 activeSection={activeSection}
+                currentUser={currentUser}
                 status={status}
                 updatingControl={updatingControl}
                 auditEvents={auditEvents}
@@ -628,6 +656,7 @@ export default function Home() {
 
 function TerminalSection(props: {
   activeSection: NavigationId;
+  currentUser: UserResponse | null;
   status: SystemStatus | null;
   updatingControl: boolean;
   auditEvents: AuditEvent[];
@@ -1304,11 +1333,13 @@ function LogsSection({ events, onRefresh, loading }: { events: AuditEvent[]; onR
 
 function SettingsSection({
   status,
+  currentUser,
   updatingControl,
   onRefreshAll,
   onToggleTradingControl
 }: {
   status: SystemStatus | null;
+  currentUser: UserResponse | null;
   updatingControl: boolean;
   onRefreshAll: () => Promise<void>;
   onToggleTradingControl: () => Promise<void>;
@@ -1338,6 +1369,11 @@ function SettingsSection({
           </div>
         </section>
         <PlatformStatus status={status} marketCandles={[]} marketError={null} />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2 mt-5">
+        <ChangePasswordForm />
+        {currentUser?.is_admin && <UserManagement />}
       </div>
     </div>
   );

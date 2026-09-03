@@ -7,7 +7,7 @@ import { login, setToken } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,7 +19,7 @@ export default function LoginPage() {
 
     try {
       const formData = new FormData();
-      formData.append("username", email);
+      formData.append("username", username);
       formData.append("password", password);
 
       const response = await login(formData);
@@ -52,15 +52,15 @@ export default function LoginPage() {
 
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-textMuted">
-              E-posta Adresi
+              Kullanıcı Adı
             </label>
             <input
-              type="email"
+              type="text"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="w-full rounded-md border border-line bg-background px-4 py-2.5 text-sm outline-none transition-colors focus:border-accent"
-              placeholder="ornek@nexus.ai"
+              placeholder="admin"
             />
           </div>
 

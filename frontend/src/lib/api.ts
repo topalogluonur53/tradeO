@@ -114,6 +114,13 @@ export type RiskDecision = {
   notional_value: number;
 };
 
+export type UserResponse = {
+  id: number;
+  username: string;
+  is_active: boolean;
+  is_admin: boolean;
+};
+
 export type PaperPosition = {
   id: string;
   symbol: string;
@@ -313,10 +320,38 @@ export type AuthResponse = {
   token_type: string;
 };
 
-export function login(formData: FormData): Promise<AuthResponse> {
-  return request<AuthResponse>("/api/auth/login", {
+export function login(formData: FormData): Promise<{ access_token: string }> {
+  return request("/api/auth/login", {
     method: "POST",
     body: formData
+  });
+}
+
+export function getCurrentUser(): Promise<UserResponse> {
+  return request("/api/auth/me", {
+    method: "GET"
+  });
+}
+
+export function changePassword(payload: any): Promise<{ message: string }> {
+  return request("/api/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function createUser(payload: any): Promise<UserResponse> {
+  return request("/api/auth/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getUsers(): Promise<UserResponse[]> {
+  return request("/api/auth/users", {
+    method: "GET"
   });
 }
 
