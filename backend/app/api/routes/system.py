@@ -25,10 +25,10 @@ class RiskLimitsResponse(BaseModel):
     min_risk_reward: float
     cooldown_after_losses: int
     stop_loss_required: bool = True
-    strategy_bollinger_width: float = 0.08
-    strategy_rsi_min: float = 35.0
-    strategy_rsi_max: float = 70.0
-    strategy_volume_multiplier: float = 0.6
+    strategy_bollinger_width: float = 0.15
+    strategy_rsi_min: float = 25.0
+    strategy_rsi_max: float = 78.0
+    strategy_volume_multiplier: float = 0.3
     strategy_macd_enabled: bool = False
     strategy_stoch_enabled: bool = False
     mtf_enabled: bool = False

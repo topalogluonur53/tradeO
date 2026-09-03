@@ -9,10 +9,10 @@ class NexusAIStrategy:
 
     def __init__(
         self, 
-        bollinger_width: float = 0.08, 
-        rsi_min: float = 35.0, 
-        rsi_max: float = 70.0, 
-        volume_multiplier: float = 0.6,
+        bollinger_width: float = 0.15, 
+        rsi_min: float = 25.0, 
+        rsi_max: float = 78.0, 
+        volume_multiplier: float = 0.3,
         macd_enabled: bool = False,
         stoch_enabled: bool = False,
     ):

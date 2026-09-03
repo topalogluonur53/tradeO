@@ -30,10 +30,10 @@ class User(Base):
     cooldown_after_losses: Mapped[int] = mapped_column(Integer, default=3)
     
     # User specific Strategy Configuration
-    strategy_bollinger_width: Mapped[float] = mapped_column(Float, default=0.08)
-    strategy_rsi_min: Mapped[float] = mapped_column(Float, default=35.0)
-    strategy_rsi_max: Mapped[float] = mapped_column(Float, default=70.0)
-    strategy_volume_multiplier: Mapped[float] = mapped_column(Float, default=0.6)
+    strategy_bollinger_width: Mapped[float] = mapped_column(Float, default=0.15)
+    strategy_rsi_min: Mapped[float] = mapped_column(Float, default=25.0)
+    strategy_rsi_max: Mapped[float] = mapped_column(Float, default=78.0)
+    strategy_volume_multiplier: Mapped[float] = mapped_column(Float, default=0.3)
     
     # Advanced Strategy Features
     strategy_macd_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
