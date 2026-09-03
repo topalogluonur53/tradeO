@@ -31,3 +31,5 @@ class User(Base):
     # Automation status
     is_automation_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     trading_mode: Mapped[str] = mapped_column(String(50), default="paper")
+    trading_halted: Mapped[bool] = mapped_column(Boolean, default=False)
+    halt_reason: Mapped[str | None] = mapped_column(String(255), default="PAPER_MODE_READY")

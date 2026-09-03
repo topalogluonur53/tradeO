@@ -1,12 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from app.api.routes.auth import get_current_user
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
-from app.trading.control import TradingControlSnapshot, trading_control
+from app.db.session import get_db
+from app.models.user import User
 
 router = APIRouter(prefix="/system", tags=["system"])
 logger = get_logger(__name__)
@@ -37,45 +40,54 @@ class SystemStatusResponse(BaseModel):
 
 
 def build_status(
-    settings: Settings,
-    snapshot: TradingControlSnapshot,
+    user: User,
 ) -> SystemStatusResponse:
     return SystemStatusResponse(
-        trading_mode=settings.trading_mode,
-        trading_halted=snapshot.halted,
-        halt_reason=snapshot.reason,
-        worker_state="halted" if snapshot.halted else "safe_idle",
-        updated_at=snapshot.updated_at,
+        trading_mode=user.trading_mode,
+        trading_halted=user.trading_halted,
+        halt_reason=user.halt_reason or "PAPER_MODE_READY",
+        worker_state="halted" if user.trading_halted else "safe_idle",
+        updated_at=datetime.now(timezone.utc),
         risk_limits=RiskLimitsResponse(
-            risk_per_trade=settings.risk_per_trade,
-            max_single_position_pct=settings.max_single_position_pct,
-            max_total_exposure_pct=settings.max_total_exposure_pct,
-            max_open_positions=settings.max_open_positions,
-            daily_loss_limit_pct=settings.daily_loss_limit_pct,
-            max_drawdown_limit_pct=settings.max_drawdown_limit_pct,
-            min_risk_reward=settings.min_risk_reward,
-            cooldown_after_losses=settings.cooldown_after_losses,
+            risk_per_trade=user.risk_per_trade,
+            max_single_position_pct=user.max_single_position_pct,
+            max_total_exposure_pct=user.max_total_exposure_pct,
+            max_open_positions=user.max_open_positions,
+            daily_loss_limit_pct=user.daily_loss_limit_pct,
+            max_drawdown_limit_pct=user.max_drawdown_limit_pct,
+            min_risk_reward=user.min_risk_reward,
+            cooldown_after_losses=user.cooldown_after_losses,
         ),
     )
 
 
 @router.get("/status", response_model=SystemStatusResponse)
-def system_status() -> SystemStatusResponse:
-    return build_status(get_settings(), trading_control.snapshot())
+def system_status(current_user: User = Depends(get_current_user)) -> SystemStatusResponse:
+    return build_status(current_user)
 
 
 @router.post("/emergency-stop", response_model=SystemStatusResponse)
-def emergency_stop() -> SystemStatusResponse:
-    snapshot = trading_control.emergency_stop()
-    logger.warning("paper_trading_emergency_stop_enabled")
-    return build_status(get_settings(), snapshot)
+def emergency_stop(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> SystemStatusResponse:
+    current_user.trading_halted = True
+    current_user.halt_reason = "MANUAL_EMERGENCY_STOP"
+    db.commit()
+    logger.warning("paper_trading_emergency_stop_enabled", extra={"user_id": current_user.id})
+    return build_status(current_user)
 
 
 @router.post("/resume", response_model=SystemStatusResponse)
-def resume_paper_mode() -> SystemStatusResponse:
-    snapshot = trading_control.resume_paper_mode()
-    logger.info("paper_trading_resumed")
-    return build_status(get_settings(), snapshot)
+def resume_paper_mode(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> SystemStatusResponse:
+    current_user.trading_halted = False
+    current_user.halt_reason = "PAPER_MODE_READY"
+    db.commit()
+    logger.info("paper_trading_resumed", extra={"user_id": current_user.id})
+    return build_status(current_user)
 
 
 class UpdateRiskLimitsRequest(BaseModel):
@@ -90,14 +102,17 @@ class UpdateRiskLimitsRequest(BaseModel):
 
 
 @router.put("/risk-limits", response_model=SystemStatusResponse)
-def update_risk_limits(req: UpdateRiskLimitsRequest) -> SystemStatusResponse:
-    settings = get_settings()
+def update_risk_limits(
+    req: UpdateRiskLimitsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> SystemStatusResponse:
     updates = req.model_dump(exclude_unset=True)
     next_single_position_pct = updates.get(
-        "max_single_position_pct", settings.max_single_position_pct
+        "max_single_position_pct", current_user.max_single_position_pct
     )
     next_total_exposure_pct = updates.get(
-        "max_total_exposure_pct", settings.max_total_exposure_pct
+        "max_total_exposure_pct", current_user.max_total_exposure_pct
     )
     if next_total_exposure_pct < next_single_position_pct:
         raise HTTPException(
@@ -106,8 +121,8 @@ def update_risk_limits(req: UpdateRiskLimitsRequest) -> SystemStatusResponse:
         )
 
     for key, value in updates.items():
-        if hasattr(settings, key):
-            setattr(settings, key, value)
+        setattr(current_user, key, value)
 
-    logger.info("risk_limits_updated", extra={"updates": updates})
-    return build_status(settings, trading_control.snapshot())
+    db.commit()
+    logger.info("risk_limits_updated", extra={"user_id": current_user.id, "updates": updates})
+    return build_status(current_user)

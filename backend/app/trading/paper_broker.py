@@ -58,14 +58,22 @@ class TradingCycleResult(BaseModel):
 
 
 class PaperBroker:
-    def __init__(self, initial_equity: float) -> None:
+    def __init__(
+        self,
+        initial_equity: float,
+        cash: float | None = None,
+        peak_equity: float | None = None,
+        open_positions: list[PaperPosition] | None = None,
+        closed_trades: list[PaperTrade] | None = None,
+        consecutive_losses: int = 0,
+    ) -> None:
         self._lock = RLock()
         self._initial_equity = initial_equity
-        self._cash = initial_equity
-        self._peak_equity = initial_equity
-        self._open_positions: list[PaperPosition] = []
-        self._closed_trades: list[PaperTrade] = []
-        self._consecutive_losses = 0
+        self._cash = cash if cash is not None else initial_equity
+        self._peak_equity = peak_equity if peak_equity is not None else initial_equity
+        self._open_positions: list[PaperPosition] = open_positions or []
+        self._closed_trades: list[PaperTrade] = closed_trades or []
+        self._consecutive_losses = consecutive_losses
 
     def reset(self, initial_equity: float | None = None) -> PaperPortfolioState:
         with self._lock:
