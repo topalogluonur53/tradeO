@@ -8,9 +8,7 @@ services:
       POSTGRES_USER: nexus
       POSTGRES_PASSWORD: nexus_password
     volumes:
-      - type: volume
-        source: postgres_data
-        target: /var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nexus -d nexus_ai_trader"]
       interval: 10s
@@ -22,9 +20,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - type: volume
-        source: redis_data
-        target: /data
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -132,9 +128,7 @@ services:
       WATCHTOWER_CLEANUP: "true"
       WATCHTOWER_LABEL_ENABLE: "true"
     volumes:
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   postgres_data:
