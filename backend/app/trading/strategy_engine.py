@@ -7,6 +7,18 @@ from app.trading.schemas import MarketRegime, Signal, SignalFilter, SignalSide
 class NexusAIStrategy:
     name = "NEXUS_AI_TREND_SQUEEZE"
 
+    def __init__(
+        self, 
+        bollinger_width: float = 0.08, 
+        rsi_min: float = 35.0, 
+        rsi_max: float = 70.0, 
+        volume_multiplier: float = 0.6
+    ):
+        self.bollinger_width = bollinger_width
+        self.rsi_min = rsi_min
+        self.rsi_max = rsi_max
+        self.volume_multiplier = volume_multiplier
+
     def generate_signal(self, symbol: str, candles: list[Candle]) -> Signal:
         latest = candles[-1]
         indicators = calculate_indicator_snapshot(candles)
@@ -37,23 +49,23 @@ class NexusAIStrategy:
             SignalFilter(
                 key="bb_squeeze",
                 label="Volatilite Sıkışması",
-                passed=indicators["bb_bandwidth"] < 0.05,
+                passed=indicators["bb_bandwidth"] < self.bollinger_width,
                 actual=f"{indicators['bb_bandwidth'] * 100:.2f}%",
-                required="< 5.0% (Sıkışma)",
+                required=f"< {self.bollinger_width * 100:.1f}% (Sıkışma)",
             ),
             SignalFilter(
                 key="rsi",
                 label="RSI Soğuması",
-                passed=40 <= indicators["rsi"] <= 65,
+                passed=self.rsi_min <= indicators["rsi"] <= self.rsi_max,
                 actual=f"{indicators['rsi']:.2f}",
-                required="40 - 65",
+                required=f"{self.rsi_min} - {self.rsi_max}",
             ),
             SignalFilter(
                 key="volume",
                 label="Hacim Teyidi",
-                passed=indicators["volume_score"] >= 0.8,
+                passed=indicators["volume_score"] >= self.volume_multiplier,
                 actual=f"{indicators['volume_score']:.2f}",
-                required=">= 0.8x ortalama",
+                required=f">= {self.volume_multiplier}x ort.",
             ),
         ]
         can_buy = all(item.passed for item in filters)

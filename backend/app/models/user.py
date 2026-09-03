@@ -29,6 +29,12 @@ class User(Base):
     min_risk_reward: Mapped[float] = mapped_column(Float, default=1.5)
     cooldown_after_losses: Mapped[int] = mapped_column(Integer, default=3)
     
+    # User specific Strategy Configuration
+    strategy_bollinger_width: Mapped[float] = mapped_column(Float, default=0.08)
+    strategy_rsi_min: Mapped[float] = mapped_column(Float, default=35.0)
+    strategy_rsi_max: Mapped[float] = mapped_column(Float, default=70.0)
+    strategy_volume_multiplier: Mapped[float] = mapped_column(Float, default=0.6)
+    
     # Automation status
     is_automation_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     trading_mode: Mapped[str] = mapped_column(String(50), default="paper")

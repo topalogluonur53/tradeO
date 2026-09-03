@@ -1596,7 +1596,11 @@ const defaultRiskLimitFormData: EditableRiskLimits = {
   daily_loss_limit_pct: 0.02,
   max_drawdown_limit_pct: 0.08,
   min_risk_reward: 1.5,
-  cooldown_after_losses: 3
+  cooldown_after_losses: 3,
+  strategy_bollinger_width: 0.08,
+  strategy_rsi_min: 35.0,
+  strategy_rsi_max: 70.0,
+  strategy_volume_multiplier: 0.6
 };
 
 function createRiskLimitFormData(limits: RiskLimits | null | undefined): EditableRiskLimits {
@@ -1612,7 +1616,11 @@ function createRiskLimitFormData(limits: RiskLimits | null | undefined): Editabl
     daily_loss_limit_pct: limits.daily_loss_limit_pct,
     max_drawdown_limit_pct: limits.max_drawdown_limit_pct,
     min_risk_reward: limits.min_risk_reward,
-    cooldown_after_losses: limits.cooldown_after_losses
+    cooldown_after_losses: limits.cooldown_after_losses,
+    strategy_bollinger_width: limits.strategy_bollinger_width,
+    strategy_rsi_min: limits.strategy_rsi_min,
+    strategy_rsi_max: limits.strategy_rsi_max,
+    strategy_volume_multiplier: limits.strategy_volume_multiplier
   };
 }
 
@@ -1742,6 +1750,10 @@ function RiskPanel({
             <StatusLine label="Minimum R/R" value={limits ? String(limits.min_risk_reward) : "-"} />
             <StatusLine label="Kayıp sonrası bekleme" value={limits ? String(limits.cooldown_after_losses) : "-"} />
             <StatusLine label="Zarar durdur" value={limits?.stop_loss_required ? "Zorunlu" : "-"} />
+            <div className="col-span-1 border-t border-line mt-2 pt-2 md:col-span-2 text-primary font-medium">Strateji Kuralları</div>
+            <StatusLine label="Bollinger Sıkışması" value={limits ? formatPercent(limits.strategy_bollinger_width) : "-"} />
+            <StatusLine label="RSI Aralığı" value={limits ? `${limits.strategy_rsi_min} - ${limits.strategy_rsi_max}` : "-"} />
+            <StatusLine label="Hacim Çarpanı" value={limits ? `${limits.strategy_volume_multiplier}x` : "-"} />
           </>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
@@ -1781,6 +1793,23 @@ function RiskPanel({
             <div>
               <label className="mb-1 block text-xs text-textMuted">Kayıp sonrası bekleme</label>
               <input type="number" min="0" max="20" step="1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.cooldown_after_losses} onChange={(e) => handleChange("cooldown_after_losses", e.target.value)} />
+            </div>
+            <div className="col-span-1 border-t border-line mt-2 pt-2 md:col-span-2 text-primary font-medium">Strateji Kuralları</div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Bollinger Genişliği (örn: 0.08)</label>
+              <input type="number" min="0.01" max="0.5" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.strategy_bollinger_width} onChange={(e) => handleChange("strategy_bollinger_width", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">RSI Min</label>
+              <input type="number" min="0" max="100" step="1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.strategy_rsi_min} onChange={(e) => handleChange("strategy_rsi_min", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">RSI Max</label>
+              <input type="number" min="0" max="100" step="1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.strategy_rsi_max} onChange={(e) => handleChange("strategy_rsi_max", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Hacim Çarpanı (örn: 0.6)</label>
+              <input type="number" min="0.0" max="5.0" step="0.1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.strategy_volume_multiplier} onChange={(e) => handleChange("strategy_volume_multiplier", e.target.value)} />
             </div>
           </div>
         )}

@@ -12,6 +12,10 @@ export type RiskLimits = {
   min_risk_reward: number;
   cooldown_after_losses: number;
   stop_loss_required: boolean;
+  strategy_bollinger_width: number;
+  strategy_rsi_min: number;
+  strategy_rsi_max: number;
+  strategy_volume_multiplier: number;
 };
 
 export type SystemStatus = {
@@ -390,7 +394,7 @@ export function updateRiskLimits(limits: UpdateRiskLimitsRequest): Promise<Syste
 export function getMarketCandles(
   symbol: string,
   interval: string,
-  limit = 200,
+  limit = 1000,
   exchange = "binance"
 ): Promise<CandleSeriesResponse> {
   const params = new URLSearchParams({
@@ -461,7 +465,7 @@ export function resetPaperPortfolio(): Promise<PaperPortfolio> {
 export function runBacktest(
   symbol: string,
   interval: string,
-  limit = 300,
+  limit = 1000,
   exchange = "binance"
 ): Promise<BacktestSummary> {
   const params = new URLSearchParams({ symbol, interval, limit: String(limit), exchange });

@@ -25,6 +25,10 @@ class RiskLimitsResponse(BaseModel):
     min_risk_reward: float
     cooldown_after_losses: int
     stop_loss_required: bool = True
+    strategy_bollinger_width: float = 0.08
+    strategy_rsi_min: float = 35.0
+    strategy_rsi_max: float = 70.0
+    strategy_volume_multiplier: float = 0.6
 
 
 class SystemStatusResponse(BaseModel):
@@ -57,6 +61,10 @@ def build_status(
             max_drawdown_limit_pct=user.max_drawdown_limit_pct,
             min_risk_reward=user.min_risk_reward,
             cooldown_after_losses=user.cooldown_after_losses,
+            strategy_bollinger_width=user.strategy_bollinger_width,
+            strategy_rsi_min=user.strategy_rsi_min,
+            strategy_rsi_max=user.strategy_rsi_max,
+            strategy_volume_multiplier=user.strategy_volume_multiplier,
         ),
     )
 
@@ -99,6 +107,10 @@ class UpdateRiskLimitsRequest(BaseModel):
     max_drawdown_limit_pct: float | None = Field(default=None, gt=0.0, le=0.8)
     min_risk_reward: float | None = Field(default=None, ge=1.0, le=10.0)
     cooldown_after_losses: int | None = Field(default=None, ge=0, le=20)
+    strategy_bollinger_width: float | None = Field(default=None, ge=0.01, le=0.5)
+    strategy_rsi_min: float | None = Field(default=None, ge=0.0, le=100.0)
+    strategy_rsi_max: float | None = Field(default=None, ge=0.0, le=100.0)
+    strategy_volume_multiplier: float | None = Field(default=None, ge=0.0, le=5.0)
 
 
 @router.put("/risk-limits", response_model=SystemStatusResponse)

@@ -8,6 +8,7 @@ from app.models.trading import PaperPortfolio, PaperPosition, PaperTrade, Automa
 from app.trading.paper_broker import PaperBroker, PaperPortfolioState, PaperPosition as BrokerPosition, PaperTrade as BrokerTrade
 from app.trading.paper_trading import PaperTradingService
 from app.core.config import get_settings
+from app.trading.strategy_engine import NexusAIStrategy
 
 
 def get_or_create_portfolio(db: Session, user: User) -> PaperPortfolio:
@@ -89,6 +90,12 @@ async def execute_trading_step_for_user(
     
     # 2. Reconstruct PaperTradingService specific to this user
     service = PaperTradingService(settings)
+    service.strategy = NexusAIStrategy(
+        bollinger_width=user.strategy_bollinger_width,
+        rsi_min=user.strategy_rsi_min,
+        rsi_max=user.strategy_rsi_max,
+        volume_multiplier=user.strategy_volume_multiplier
+    )
     
     # Apply user-specific risk limits from the User model!
     service.risk_engine.settings.risk_per_trade = user.risk_per_trade
