@@ -1,3 +1,4 @@
+name: tradeo
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,7 +8,9 @@ services:
       POSTGRES_USER: nexus
       POSTGRES_PASSWORD: nexus_password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - type: volume
+        source: postgres_data
+        target: /var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nexus -d nexus_ai_trader"]
       interval: 10s
@@ -19,7 +22,9 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redis_data:/data
+      - type: volume
+        source: redis_data
+        target: /data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -32,7 +37,9 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     ports:
-      - "8000:8000"
+      - target: 8000
+        published: "8000"
+        protocol: tcp
     environment:
       PROJECT_NAME: NEXUS AI TRADER
       ENVIRONMENT: development
@@ -110,7 +117,9 @@ services:
       API_URL: http://backend:8000/api
       NEXT_PUBLIC_API_BASE_URL: http://192.168.1.164:8000/api
     ports:
-      - "3000:3000"
+      - target: 3000
+        published: "3000"
+        protocol: tcp
     depends_on:
       backend:
         condition: service_started
@@ -123,10 +132,21 @@ services:
       WATCHTOWER_CLEANUP: "true"
       WATCHTOWER_LABEL_ENABLE: "true"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
 
 volumes:
   postgres_data:
     driver: local
   redis_data:
     driver: local
+
+x-casaos:
+  title:
+    en_us: TradeO
+  hostname: "192.168.1.164"
+  port_map: "3000"
+  scheme: http
+  index: /
+  icon: https://cdn-icons-png.flaticon.com/512/6228/6228571.png
