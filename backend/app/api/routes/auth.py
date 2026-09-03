@@ -35,25 +35,6 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
-@router.post("/register", response_model=UserResponse)
-def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == user_in.email))
-    if user:
-        raise HTTPException(
-            status_code=400,
-            detail="The user with this email already exists in the system.",
-        )
-    
-    user = User(
-        email=user_in.email,
-        hashed_password=get_password_hash(user_in.password),
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
 @router.post("/login", response_model=Token)
 def login(
     db: Session = Depends(get_db),
