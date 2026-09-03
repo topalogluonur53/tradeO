@@ -12,12 +12,16 @@ class NexusAIStrategy:
         bollinger_width: float = 0.08, 
         rsi_min: float = 35.0, 
         rsi_max: float = 70.0, 
-        volume_multiplier: float = 0.6
+        volume_multiplier: float = 0.6,
+        macd_enabled: bool = False,
+        stoch_enabled: bool = False,
     ):
         self.bollinger_width = bollinger_width
         self.rsi_min = rsi_min
         self.rsi_max = rsi_max
         self.volume_multiplier = volume_multiplier
+        self.macd_enabled = macd_enabled
+        self.stoch_enabled = stoch_enabled
 
     def generate_signal(self, symbol: str, candles: list[Candle]) -> Signal:
         latest = candles[-1]
@@ -68,6 +72,29 @@ class NexusAIStrategy:
                 required=f">= {self.volume_multiplier}x ort.",
             ),
         ]
+        
+        if self.macd_enabled:
+            filters.append(
+                SignalFilter(
+                    key="macd",
+                    label="MACD Momentum",
+                    passed=indicators["macd_hist"] > 0,
+                    actual=f"{indicators['macd_hist']:.4f}",
+                    required="> 0 (Yukarı Yönlü)",
+                )
+            )
+            
+        if self.stoch_enabled:
+            filters.append(
+                SignalFilter(
+                    key="stoch_rsi",
+                    label="Stoch RSI Alış Sinyali",
+                    passed=indicators["stoch_k"] > indicators["stoch_d"] and indicators["stoch_k"] < 80,
+                    actual=f"K:{indicators['stoch_k']:.1f} D:{indicators['stoch_d']:.1f}",
+                    required="K > D ve K < 80",
+                )
+            )
+
         can_buy = all(item.passed for item in filters)
 
         stop_distance = max(latest.close * 0.01, latest.close * indicators["atr_pct"] * 1.5)

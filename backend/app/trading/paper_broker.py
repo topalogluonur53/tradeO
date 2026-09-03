@@ -66,6 +66,8 @@ class PaperBroker:
         open_positions: list[PaperPosition] | None = None,
         closed_trades: list[PaperTrade] | None = None,
         consecutive_losses: int = 0,
+        trailing_stop_enabled: bool = False,
+        trailing_stop_distance_pct: float = 0.03,
     ) -> None:
         self._lock = RLock()
         self._initial_equity = initial_equity
@@ -74,6 +76,8 @@ class PaperBroker:
         self._open_positions: list[PaperPosition] = open_positions or []
         self._closed_trades: list[PaperTrade] = closed_trades or []
         self._consecutive_losses = consecutive_losses
+        self._trailing_stop_enabled = trailing_stop_enabled
+        self._trailing_stop_distance_pct = trailing_stop_distance_pct
 
     def reset(self, initial_equity: float | None = None) -> PaperPortfolioState:
         with self._lock:
@@ -119,6 +123,13 @@ class PaperBroker:
                 if position.symbol != candle.symbol:
                     remaining.append(position)
                     continue
+
+                if self._trailing_stop_enabled:
+                    # Trailing Stop Logic: 
+                    # Stop is updated if (current high - trailing distance) > current stop
+                    potential_new_stop = candle.high * (1.0 - self._trailing_stop_distance_pct)
+                    if potential_new_stop > position.stop_loss:
+                        position.stop_loss = potential_new_stop
 
                 exit_price: float | None = None
                 exit_reason: str | None = None

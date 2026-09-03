@@ -18,7 +18,9 @@ async def get_best_symbol_to_trade(symbols_to_scan, interval, user):
         bollinger_width=user.strategy_bollinger_width,
         rsi_min=user.strategy_rsi_min,
         rsi_max=user.strategy_rsi_max,
-        volume_multiplier=user.strategy_volume_multiplier
+        volume_multiplier=user.strategy_volume_multiplier,
+        macd_enabled=user.strategy_macd_enabled,
+        stoch_enabled=user.strategy_stoch_enabled,
     )
     
     best_symbol = None
@@ -26,6 +28,17 @@ async def get_best_symbol_to_trade(symbols_to_scan, interval, user):
     
     for sym in symbols_to_scan:
         try:
+            # Multi-Timeframe Check (MTF)
+            if user.mtf_enabled:
+                # Higher timeframe check (e.g. 4h trend)
+                htf_series = await client.get_candles(symbol=sym, interval="4h", limit=50)
+                if len(htf_series.candles) >= 30:
+                    from app.trading.indicators import calculate_indicator_snapshot
+                    htf_inds = calculate_indicator_snapshot(htf_series.candles)
+                    if htf_inds["ema_fast"] <= htf_inds["ema_slow"]:
+                        await asyncio.sleep(0.5)
+                        continue # 4H trend is down, skip this coin
+
             series = await client.get_candles(symbol=sym, interval=interval, limit=120)
             signal = strategy.generate_signal(sym, series.candles)
             if signal.side.value == "BUY" and signal.confidence > best_confidence:

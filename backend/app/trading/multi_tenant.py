@@ -94,7 +94,9 @@ async def execute_trading_step_for_user(
         bollinger_width=user.strategy_bollinger_width,
         rsi_min=user.strategy_rsi_min,
         rsi_max=user.strategy_rsi_max,
-        volume_multiplier=user.strategy_volume_multiplier
+        volume_multiplier=user.strategy_volume_multiplier,
+        macd_enabled=user.strategy_macd_enabled,
+        stoch_enabled=user.strategy_stoch_enabled
     )
     
     # Apply user-specific risk limits from the User model!
@@ -115,7 +117,9 @@ async def execute_trading_step_for_user(
         peak_equity=portfolio.peak_equity,
         open_positions=open_positions,
         closed_trades=closed_trades,
-        consecutive_losses=portfolio.consecutive_losses
+        consecutive_losses=portfolio.consecutive_losses,
+        trailing_stop_enabled=user.trailing_stop_enabled,
+        trailing_stop_distance_pct=user.trailing_stop_distance_pct
     )
     
     # Load Automation State

@@ -29,6 +29,11 @@ class RiskLimitsResponse(BaseModel):
     strategy_rsi_min: float = 35.0
     strategy_rsi_max: float = 70.0
     strategy_volume_multiplier: float = 0.6
+    strategy_macd_enabled: bool = False
+    strategy_stoch_enabled: bool = False
+    mtf_enabled: bool = False
+    trailing_stop_enabled: bool = False
+    trailing_stop_distance_pct: float = 0.03
 
 
 class SystemStatusResponse(BaseModel):
@@ -65,6 +70,11 @@ def build_status(
             strategy_rsi_min=user.strategy_rsi_min,
             strategy_rsi_max=user.strategy_rsi_max,
             strategy_volume_multiplier=user.strategy_volume_multiplier,
+            strategy_macd_enabled=user.strategy_macd_enabled,
+            strategy_stoch_enabled=user.strategy_stoch_enabled,
+            mtf_enabled=user.mtf_enabled,
+            trailing_stop_enabled=user.trailing_stop_enabled,
+            trailing_stop_distance_pct=user.trailing_stop_distance_pct,
         ),
     )
 
@@ -111,7 +121,11 @@ class UpdateRiskLimitsRequest(BaseModel):
     strategy_rsi_min: float | None = Field(default=None, ge=0.0, le=100.0)
     strategy_rsi_max: float | None = Field(default=None, ge=0.0, le=100.0)
     strategy_volume_multiplier: float | None = Field(default=None, ge=0.0, le=5.0)
-
+    strategy_macd_enabled: bool | None = Field(default=None)
+    strategy_stoch_enabled: bool | None = Field(default=None)
+    mtf_enabled: bool | None = Field(default=None)
+    trailing_stop_enabled: bool | None = Field(default=None)
+    trailing_stop_distance_pct: float | None = Field(default=None, gt=0.0, le=0.10)
 
 @router.put("/risk-limits", response_model=SystemStatusResponse)
 def update_risk_limits(

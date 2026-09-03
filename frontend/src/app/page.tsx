@@ -1620,7 +1620,12 @@ function createRiskLimitFormData(limits: RiskLimits | null | undefined): Editabl
     strategy_bollinger_width: limits.strategy_bollinger_width,
     strategy_rsi_min: limits.strategy_rsi_min,
     strategy_rsi_max: limits.strategy_rsi_max,
-    strategy_volume_multiplier: limits.strategy_volume_multiplier
+    strategy_volume_multiplier: limits.strategy_volume_multiplier,
+    strategy_macd_enabled: limits.strategy_macd_enabled,
+    strategy_stoch_enabled: limits.strategy_stoch_enabled,
+    mtf_enabled: limits.mtf_enabled,
+    trailing_stop_enabled: limits.trailing_stop_enabled,
+    trailing_stop_distance_pct: limits.trailing_stop_distance_pct
   };
 }
 
@@ -1749,11 +1754,15 @@ function RiskPanel({
             <StatusLine label="Maks. gerileme" value={formatPercent(limits?.max_drawdown_limit_pct)} />
             <StatusLine label="Minimum R/R" value={limits ? String(limits.min_risk_reward) : "-"} />
             <StatusLine label="Kayıp sonrası bekleme" value={limits ? String(limits.cooldown_after_losses) : "-"} />
-            <StatusLine label="Zarar durdur" value={limits?.stop_loss_required ? "Zorunlu" : "-"} />
             <div className="col-span-1 border-t border-line mt-2 pt-2 md:col-span-2 text-primary font-medium">Strateji Kuralları</div>
-            <StatusLine label="Bollinger Sıkışması" value={limits ? formatPercent(limits.strategy_bollinger_width) : "-"} />
-            <StatusLine label="RSI Aralığı" value={limits ? `${limits.strategy_rsi_min} - ${limits.strategy_rsi_max}` : "-"} />
-            <StatusLine label="Hacim Çarpanı" value={limits ? `${limits.strategy_volume_multiplier}x` : "-"} />
+            <StatusLine label="Bollinger Sıkışması" value={limits?.strategy_bollinger_width !== undefined ? formatPercent(limits.strategy_bollinger_width) : "-"} />
+            <StatusLine label="RSI Aralığı" value={limits?.strategy_rsi_min !== undefined ? `${limits.strategy_rsi_min} - ${limits.strategy_rsi_max}` : "-"} />
+            <StatusLine label="Hacim Çarpanı" value={limits?.strategy_volume_multiplier !== undefined ? `${limits.strategy_volume_multiplier}x` : "-"} />
+            <div className="col-span-1 border-t border-line mt-2 pt-2 md:col-span-2 text-primary font-medium">Gelişmiş Yapay Zeka Özellikleri</div>
+            <StatusLine label="MACD Onayı" value={limits?.strategy_macd_enabled ? "Aktif" : "Kapalı"} />
+            <StatusLine label="Stoch RSI" value={limits?.strategy_stoch_enabled ? "Aktif" : "Kapalı"} />
+            <StatusLine label="Çoklu Zaman (MTF) Trend" value={limits?.mtf_enabled ? "Aktif" : "Kapalı"} />
+            <StatusLine label="İzleyen Stop (Trailing)" value={limits?.trailing_stop_enabled ? `Aktif (${formatPercent(limits.trailing_stop_distance_pct)})` : "Kapalı"} />
           </>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
@@ -1811,6 +1820,29 @@ function RiskPanel({
               <label className="mb-1 block text-xs text-textMuted">Hacim Çarpanı (örn: 0.6)</label>
               <input type="number" min="0.0" max="5.0" step="0.1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.strategy_volume_multiplier} onChange={(e) => handleChange("strategy_volume_multiplier", e.target.value)} />
             </div>
+            <div className="col-span-1 border-t border-line mt-2 pt-2 md:col-span-2 text-primary font-medium">Gelişmiş Yapay Zeka Özellikleri</div>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="macd_enabled" className="rounded border-line bg-background text-primary focus:ring-primary" checked={formData.strategy_macd_enabled} onChange={(e) => handleChange("strategy_macd_enabled", e.target.checked)} />
+              <label htmlFor="macd_enabled" className="text-sm text-textMuted">MACD Onayı (Momentum Teyidi)</label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="stoch_enabled" className="rounded border-line bg-background text-primary focus:ring-primary" checked={formData.strategy_stoch_enabled} onChange={(e) => handleChange("strategy_stoch_enabled", e.target.checked)} />
+              <label htmlFor="stoch_enabled" className="text-sm text-textMuted">Stoch RSI (Aşırı Satım Teyidi)</label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <input type="checkbox" id="mtf_enabled" className="rounded border-line bg-background text-primary focus:ring-primary" checked={formData.mtf_enabled} onChange={(e) => handleChange("mtf_enabled", e.target.checked)} />
+              <label htmlFor="mtf_enabled" className="text-sm text-textMuted">Çoklu Zaman Dilimi (4S Ana Trend Onayı)</label>
+            </div>
+            <div className="flex items-center space-x-2 md:col-span-2">
+              <input type="checkbox" id="trailing_enabled" className="rounded border-line bg-background text-primary focus:ring-primary" checked={formData.trailing_stop_enabled} onChange={(e) => handleChange("trailing_stop_enabled", e.target.checked)} />
+              <label htmlFor="trailing_enabled" className="text-sm text-textMuted">İzleyen Stop (Trailing Stop Loss)</label>
+            </div>
+            {formData.trailing_stop_enabled && (
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs text-textMuted">İzleyen Stop Yüzdesi (örn: 0.03 = %3)</label>
+                <input type="number" min="0.01" max="0.10" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.trailing_stop_distance_pct} onChange={(e) => handleChange("trailing_stop_distance_pct", e.target.value)} />
+              </div>
+            )}
           </div>
         )}
       </div>

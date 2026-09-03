@@ -35,6 +35,13 @@ class User(Base):
     strategy_rsi_max: Mapped[float] = mapped_column(Float, default=70.0)
     strategy_volume_multiplier: Mapped[float] = mapped_column(Float, default=0.6)
     
+    # Advanced Strategy Features
+    strategy_macd_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    strategy_stoch_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    mtf_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    trailing_stop_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    trailing_stop_distance_pct: Mapped[float] = mapped_column(Float, default=0.03)
+    
     # Automation status
     is_automation_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     trading_mode: Mapped[str] = mapped_column(String(50), default="paper")
