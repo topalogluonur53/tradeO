@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.market_data.binance import BinanceMarketDataClient, MarketDataError
+from app.market_data.binance import BinanceMarketDataClient, MarketDataError, normalize_exchange
+from app.market_data.offline import build_offline_candles
+from app.market_data.okx import OkxMarketDataClient
 from app.trading.paper_broker import PaperPortfolioState, TradingCycleResult
-from app.trading.paper_trading import AutomationState, paper_trading_service
+from app.trading.paper_trading import ActivationValidationSummary, AutomationState, paper_trading_service
 from app.trading.schemas import SignalSide
 from app.trading.strategy_engine import EmaRsiStrategy
 
@@ -35,13 +37,30 @@ def trading_state() -> TradingStateResponse:
     )
 
 
+@router.get("/validation", response_model=ActivationValidationSummary)
+async def activation_validation(
+    symbol: str = Query(default="BTCUSDT", min_length=3, max_length=20),
+    interval: str = Query(default="1h", min_length=2, max_length=3),
+    exchange: str = Query(default="binance", min_length=2, max_length=12),
+) -> ActivationValidationSummary:
+    try:
+        return await paper_trading_service.validate_activation(
+            symbol=symbol,
+            interval=interval,
+            exchange=exchange,
+        )
+    except (ValueError, MarketDataError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 @router.post("/step", response_model=TradingCycleResult)
 async def run_trading_step(
     symbol: str = Query(default="BTCUSDT", min_length=3, max_length=20),
     interval: str = Query(default="1h", min_length=2, max_length=3),
+    exchange: str = Query(default="binance", min_length=2, max_length=12),
 ) -> TradingCycleResult:
     try:
-        return await paper_trading_service.step(symbol=symbol, interval=interval)
+        return await paper_trading_service.step(symbol=symbol, interval=interval, exchange=exchange)
     except (ValueError, MarketDataError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -50,8 +69,20 @@ async def run_trading_step(
 async def start_automation(
     symbol: str = Query(default="BTCUSDT", min_length=3, max_length=20),
     interval: str = Query(default="1h", min_length=2, max_length=3),
+    exchange: str = Query(default="binance", min_length=2, max_length=12),
 ) -> AutomationState:
-    return paper_trading_service.start(symbol=symbol, interval=interval)
+    validation = await paper_trading_service.validate_activation(
+        symbol=symbol,
+        interval=interval,
+        exchange=exchange,
+    )
+    if not validation.ready:
+        failed = ", ".join(row.name for row in validation.rows if not row.passed)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Activation validation failed: {failed}",
+        )
+    return paper_trading_service.start(symbol=symbol, interval=interval, exchange=exchange)
 
 
 @router.post("/automation/stop", response_model=AutomationState)
@@ -70,18 +101,33 @@ async def run_backtest(
     symbol: str = Query(default="BTCUSDT", min_length=3, max_length=20),
     interval: str = Query(default="1h", min_length=2, max_length=3),
     limit: int = Query(default=300, ge=60, le=1000),
+    exchange: str = Query(default="binance", min_length=2, max_length=12),
 ) -> BacktestSummary:
     settings = get_settings()
-    client = BinanceMarketDataClient(
-        base_url=settings.market_data_base_url,
-        timeout_seconds=settings.market_data_timeout_seconds,
-    )
     strategy = EmaRsiStrategy()
+    selected_exchange = normalize_exchange(exchange)
+    if selected_exchange == "all":
+        selected_exchange = "binance"
 
     try:
-        series = await client.get_candles(symbol=symbol, interval=interval, limit=limit)
-    except (ValueError, MarketDataError) as exc:
+        if selected_exchange == "okx":
+            client = OkxMarketDataClient(timeout_seconds=settings.market_data_timeout_seconds)
+            series = await client.get_candles(symbol=symbol, interval=interval, limit=min(limit, 300))
+        else:
+            client = BinanceMarketDataClient(
+                base_url=settings.market_data_base_url,
+                timeout_seconds=settings.market_data_timeout_seconds,
+            )
+            series = await client.get_candles(symbol=symbol, interval=interval, limit=limit)
+    except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except MarketDataError:
+        series = build_offline_candles(
+            symbol=symbol,
+            interval=interval,
+            limit=min(limit, 300) if selected_exchange == "okx" else limit,
+            exchange=selected_exchange,
+        )
 
     equity = settings.paper_initial_equity
     position_entry: float | None = None

@@ -24,6 +24,19 @@ class MarketDataError(RuntimeError):
     """Raised when public market data cannot be loaded."""
 
 
+def normalize_exchange(exchange: str | None) -> str:
+    if not exchange:
+        return "binance"
+    normalized = exchange.strip().lower()
+    if normalized in {"okex", "okx"}:
+        return "okx"
+    if normalized in {"binance", "bnb"}:
+        return "binance"
+    if normalized in {"all", "combined"}:
+        return "all"
+    return normalized
+
+
 def normalize_symbol(symbol: str) -> str:
     return symbol.replace("/", "").replace("-", "").upper().strip()
 
@@ -60,6 +73,7 @@ def parse_kline(symbol: str, interval: str, row: list[Any]) -> Candle:
 
 def parse_exchange_symbol(row: dict[str, Any]) -> MarketSymbol:
     return MarketSymbol(
+        exchange="binance",
         symbol=str(row["symbol"]),
         base_asset=str(row["baseAsset"]),
         quote_asset=str(row["quoteAsset"]),
@@ -70,6 +84,7 @@ def parse_exchange_symbol(row: dict[str, Any]) -> MarketSymbol:
 
 def parse_ticker(row: dict[str, Any]) -> MarketTicker:
     return MarketTicker(
+        exchange="binance",
         symbol=str(row["symbol"]),
         price_change=float(row["priceChange"]),
         price_change_percent=float(row["priceChangePercent"]),
@@ -87,31 +102,37 @@ def parse_ticker(row: dict[str, Any]) -> MarketTicker:
 
 class BinanceMarketDataClient:
     def __init__(self, base_url: str, timeout_seconds: float) -> None:
-        self._base_url = base_url.rstrip("/")
+        self._base_urls = normalize_base_urls(base_url)
         self._timeout = httpx.Timeout(timeout_seconds)
 
-    async def get_candles(self, symbol: str, interval: str, limit: int = 200) -> CandleSeries:
+    async def get_candles(
+        self,
+        symbol: str,
+        interval: str,
+        limit: int = 200,
+        validate_symbol: bool = True,
+    ) -> CandleSeries:
         normalized_symbol, normalized_interval, normalized_limit = validate_market_request(
             symbol=symbol,
             interval=interval,
             limit=limit,
         )
+        if validate_symbol:
+            await self._ensure_active_spot_symbol(normalized_symbol)
 
         try:
-            async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
-                response = await client.get(
-                    "/api/v3/klines",
-                    params={
-                        "symbol": normalized_symbol,
-                        "interval": normalized_interval,
-                        "limit": normalized_limit,
-                    },
-                )
-                response.raise_for_status()
+            payload = await self._get_json(
+                "/api/v3/klines",
+                params={
+                    "symbol": normalized_symbol,
+                    "interval": normalized_interval,
+                    "limit": normalized_limit,
+                },
+                error_message="Public market data source is unavailable",
+            )
         except httpx.HTTPError as exc:
             raise MarketDataError("Public market data source is unavailable") from exc
 
-        payload = response.json()
         if not isinstance(payload, list):
             raise MarketDataError("Unexpected market data payload")
 
@@ -119,42 +140,57 @@ class BinanceMarketDataClient:
             symbol=normalized_symbol,
             interval=normalized_interval,
             source="binance_public_market_data",
+            exchange="binance",
             candles=[parse_kline(normalized_symbol, normalized_interval, row) for row in payload],
         )
 
     async def get_symbols(self, quote_asset: str | None = None) -> list[MarketSymbol]:
+        symbols = await self._load_symbols()
+        normalized_quote = quote_asset.upper().strip() if quote_asset else None
+        return [
+            symbol
+            for symbol in symbols
+            if normalized_quote is None or symbol.quote_asset == normalized_quote
+        ]
+
+    async def _load_symbols(self) -> list[MarketSymbol]:
+        if hasattr(self, "_symbols_cache"):
+            return self._symbols_cache
+
         try:
-            async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
-                response = await client.get("/api/v3/exchangeInfo")
-                response.raise_for_status()
+            payload = await self._get_json(
+                "/api/v3/exchangeInfo",
+                params=None,
+                error_message="Public market symbols source is unavailable",
+            )
         except httpx.HTTPError as exc:
             raise MarketDataError("Public market symbols source is unavailable") from exc
 
-        payload = response.json()
         rows = payload.get("symbols") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise MarketDataError("Unexpected market symbols payload")
 
-        normalized_quote = quote_asset.upper().strip() if quote_asset else None
         symbols = [
             parse_exchange_symbol(row)
             for row in rows
             if isinstance(row, dict)
             and row.get("status") == "TRADING"
             and row.get("isSpotTradingAllowed", False)
-            and (normalized_quote is None or row.get("quoteAsset") == normalized_quote)
         ]
-        return sorted(symbols, key=lambda item: item.symbol)
+        self._symbols_cache = sorted(symbols, key=lambda item: item.symbol)
+        return self._symbols_cache
 
     async def get_24h_tickers(self, quote_asset: str | None = None) -> MarketOverview:
+        active_symbols = {symbol.symbol for symbol in await self.get_symbols(quote_asset=quote_asset)}
         try:
-            async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
-                response = await client.get("/api/v3/ticker/24hr")
-                response.raise_for_status()
+            payload = await self._get_json(
+                "/api/v3/ticker/24hr",
+                params=None,
+                error_message="Public market ticker source is unavailable",
+            )
         except httpx.HTTPError as exc:
             raise MarketDataError("Public market ticker source is unavailable") from exc
 
-        payload = response.json()
         if not isinstance(payload, list):
             raise MarketDataError("Unexpected market ticker payload")
 
@@ -164,6 +200,9 @@ class BinanceMarketDataClient:
             for row in payload
             if isinstance(row, dict)
             and (normalized_quote is None or str(row.get("symbol", "")).endswith(normalized_quote))
+            and str(row.get("symbol", "")) in active_symbols
+            and float(row.get("lastPrice", 0) or 0) > 0
+            and float(row.get("quoteVolume", 0) or 0) > 0
         ]
         tickers.sort(key=lambda item: item.quote_volume, reverse=True)
         return MarketOverview(
@@ -172,3 +211,46 @@ class BinanceMarketDataClient:
             total=len(tickers),
             tickers=tickers,
         )
+
+    async def _get_json(
+        self,
+        path: str,
+        params: dict[str, str | int] | None,
+        error_message: str,
+    ) -> Any:
+        last_error: httpx.HTTPError | None = None
+        for base_url in self._base_urls:
+            try:
+                async with httpx.AsyncClient(base_url=base_url, timeout=self._timeout) as client:
+                    response = await client.get(path, params=params)
+                    response.raise_for_status()
+                    return response.json()
+            except httpx.HTTPError as exc:
+                last_error = exc
+
+        if last_error is not None:
+            raise MarketDataError(error_message) from last_error
+        raise MarketDataError(error_message)
+
+
+    async def _ensure_active_spot_symbol(self, symbol: str) -> None:
+        active_symbols = {item.symbol for item in await self._load_symbols()}
+        if symbol not in active_symbols:
+            raise ValueError(f"{symbol} is not an active Binance spot symbol")
+
+
+def normalize_base_urls(base_url: str) -> list[str]:
+    configured = [url.strip().rstrip("/") for url in base_url.split(",") if url.strip()]
+    fallback_urls = [
+        "https://data-api.binance.vision",
+        "https://api.binance.com",
+        "https://api1.binance.com",
+        "https://api2.binance.com",
+        "https://api3.binance.com",
+    ]
+
+    urls: list[str] = []
+    for url in [*configured, *fallback_urls]:
+        if url and url not in urls:
+            urls.append(url)
+    return urls

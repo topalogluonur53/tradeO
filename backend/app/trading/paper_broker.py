@@ -15,8 +15,11 @@ class PaperPosition(BaseModel):
     symbol: str
     quantity: float
     entry_price: float
+    current_price: float
     stop_loss: float
     take_profit: float
+    unrealized_pnl: float = 0.0
+    unrealized_pnl_pct: float = 0.0
     opened_at: datetime
     strategy: str
 
@@ -74,20 +77,27 @@ class PaperBroker:
             self._consecutive_losses = 0
             return self.snapshot()
 
-    def snapshot(self, mark_price: float | None = None) -> PaperPortfolioState:
+    def snapshot(
+        self,
+        mark_price: float | None = None,
+        mark_symbol: str | None = None,
+    ) -> PaperPortfolioState:
         with self._lock:
-            exposure = sum(position.quantity * position.entry_price for position in self._open_positions)
-            unrealized = 0.0
-            if mark_price is not None:
-                unrealized = sum((mark_price - position.entry_price) * position.quantity for position in self._open_positions)
-            equity = self._cash + exposure + unrealized
+            open_positions = [
+                self._position_with_mark(position, mark_price, mark_symbol)
+                for position in self._open_positions
+            ]
+            self._open_positions = open_positions
+            exposure = sum(position.quantity * position.entry_price for position in open_positions)
+            market_value = sum(position.quantity * position.current_price for position in open_positions)
+            equity = self._cash + market_value
             self._peak_equity = max(self._peak_equity, equity)
             return PaperPortfolioState(
                 cash=self._cash,
                 equity=equity,
                 peak_equity=self._peak_equity,
                 current_exposure=exposure,
-                open_positions=list(self._open_positions),
+                open_positions=list(open_positions),
                 closed_trades=list(self._closed_trades[-50:]),
                 daily_pnl=sum(trade.realized_pnl for trade in self._closed_trades),
                 consecutive_losses=self._consecutive_losses,
@@ -98,6 +108,10 @@ class PaperBroker:
         with self._lock:
             remaining: list[PaperPosition] = []
             for position in self._open_positions:
+                if position.symbol != candle.symbol:
+                    remaining.append(position)
+                    continue
+
                 exit_price: float | None = None
                 exit_reason: str | None = None
 
@@ -152,6 +166,7 @@ class PaperBroker:
                 symbol=signal.symbol,
                 quantity=risk_decision.position_quantity,
                 entry_price=signal.entry_price,
+                current_price=signal.entry_price,
                 stop_loss=signal.stop_loss,
                 take_profit=signal.take_profit,
                 opened_at=datetime.now(UTC),
@@ -161,8 +176,39 @@ class PaperBroker:
             self._open_positions.append(position)
             return "PAPER_POSITION_OPENED"
 
-    def portfolio_snapshot_for_risk(self, settings: Settings, mark_price: float) -> PortfolioSnapshot:
-        state = self.snapshot(mark_price=mark_price)
+    def has_open_position(self, symbol: str) -> bool:
+        with self._lock:
+            return any(position.symbol == symbol for position in self._open_positions)
+
+    def _position_with_mark(
+        self,
+        position: PaperPosition,
+        mark_price: float | None,
+        mark_symbol: str | None,
+    ) -> PaperPosition:
+        if mark_price is None or mark_symbol != position.symbol:
+            current_price = position.current_price
+        else:
+            current_price = mark_price
+
+        unrealized_pnl = (current_price - position.entry_price) * position.quantity
+        notional_value = position.entry_price * position.quantity
+        unrealized_pnl_pct = 0.0 if notional_value <= 0 else unrealized_pnl / notional_value
+        return position.model_copy(
+            update={
+                "current_price": current_price,
+                "unrealized_pnl": unrealized_pnl,
+                "unrealized_pnl_pct": unrealized_pnl_pct,
+            }
+        )
+
+    def portfolio_snapshot_for_risk(
+        self,
+        settings: Settings,
+        mark_price: float,
+        mark_symbol: str | None = None,
+    ) -> PortfolioSnapshot:
+        state = self.snapshot(mark_price=mark_price, mark_symbol=mark_symbol)
         return PortfolioSnapshot(
             account_equity=state.equity,
             current_exposure=state.current_exposure,

@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, Field
 
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
@@ -79,25 +79,35 @@ def resume_paper_mode() -> SystemStatusResponse:
 
 
 class UpdateRiskLimitsRequest(BaseModel):
-    risk_per_trade: float | None = None
-    max_single_position_pct: float | None = None
-    max_total_exposure_pct: float | None = None
-    max_open_positions: int | None = None
-    daily_loss_limit_pct: float | None = None
-    max_drawdown_limit_pct: float | None = None
-    min_risk_reward: float | None = None
-    cooldown_after_losses: int | None = None
+    risk_per_trade: float | None = Field(default=None, gt=0.0, le=0.05)
+    max_single_position_pct: float | None = Field(default=None, gt=0.0, le=1.0)
+    max_total_exposure_pct: float | None = Field(default=None, gt=0.0, le=1.0)
+    max_open_positions: int | None = Field(default=None, ge=1, le=50)
+    daily_loss_limit_pct: float | None = Field(default=None, gt=0.0, le=0.5)
+    max_drawdown_limit_pct: float | None = Field(default=None, gt=0.0, le=0.8)
+    min_risk_reward: float | None = Field(default=None, ge=1.0, le=10.0)
+    cooldown_after_losses: int | None = Field(default=None, ge=0, le=20)
 
 
 @router.put("/risk-limits", response_model=SystemStatusResponse)
 def update_risk_limits(req: UpdateRiskLimitsRequest) -> SystemStatusResponse:
     settings = get_settings()
     updates = req.model_dump(exclude_unset=True)
+    next_single_position_pct = updates.get(
+        "max_single_position_pct", settings.max_single_position_pct
+    )
+    next_total_exposure_pct = updates.get(
+        "max_total_exposure_pct", settings.max_total_exposure_pct
+    )
+    if next_total_exposure_pct < next_single_position_pct:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="max_total_exposure_pct must be greater than or equal to max_single_position_pct",
+        )
+
     for key, value in updates.items():
         if hasattr(settings, key):
             setattr(settings, key, value)
-    
+
     logger.info("risk_limits_updated", extra={"updates": updates})
     return build_status(settings, trading_control.snapshot())
-
-

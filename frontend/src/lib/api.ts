@@ -46,10 +46,12 @@ export type CandleSeriesResponse = {
   symbol: string;
   interval: string;
   source: string;
+  exchange: string;
   candles: MarketCandle[];
 };
 
 export type MarketSymbol = {
+  exchange: string;
   symbol: string;
   base_asset: string;
   quote_asset: string;
@@ -58,6 +60,7 @@ export type MarketSymbol = {
 };
 
 export type MarketTicker = {
+  exchange: string;
   symbol: string;
   price_change: number;
   price_change_percent: number;
@@ -92,6 +95,16 @@ export type TradingSignal = {
   market_regime: string;
   timestamp: string;
   explanation: string;
+  indicators: Record<string, number>;
+  filters: SignalFilter[];
+};
+
+export type SignalFilter = {
+  key: string;
+  label: string;
+  passed: boolean;
+  actual: string;
+  required: string;
 };
 
 export type RiskDecision = {
@@ -106,8 +119,11 @@ export type PaperPosition = {
   symbol: string;
   quantity: number;
   entry_price: number;
+  current_price: number;
   stop_loss: number;
   take_profit: number;
+  unrealized_pnl: number;
+  unrealized_pnl_pct: number;
   opened_at: string;
   strategy: string;
 };
@@ -142,9 +158,33 @@ export type AutomationState = {
   running: boolean;
   symbol: string;
   interval: string;
+  exchange: string;
   last_cycle_at: string | null;
   last_action: string;
   last_reason: string;
+  last_signal: TradingSignal | null;
+  last_risk_decision: RiskDecision | null;
+};
+
+export type ActivationValidationRow = {
+  key: string;
+  name: string;
+  status: string;
+  market_regime: string;
+  activation: string;
+  passed: boolean;
+  actual: string;
+  required: string;
+};
+
+export type ActivationValidationSummary = {
+  ready: boolean;
+  phase: string;
+  symbol: string;
+  interval: string;
+  exchange: string;
+  checked_at: string;
+  rows: ActivationValidationRow[];
 };
 
 export type TradingState = {
@@ -188,10 +228,48 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`API isteği başarısız oldu (${response.status})`);
+    throw new Error(await readErrorMessage(response));
   }
 
   return response.json() as Promise<T>;
+}
+
+async function readErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload: unknown = await response.json();
+    if (isErrorPayload(payload)) {
+      if (typeof payload.detail === "string") {
+        return payload.detail;
+      }
+
+      if (Array.isArray(payload.detail)) {
+        const messages = payload.detail
+          .map((item) => (isValidationIssue(item) ? item.msg : null))
+          .filter((message): message is string => Boolean(message));
+
+        if (messages.length) {
+          return messages.join(", ");
+        }
+      }
+    }
+  } catch {
+    // Fall through to the generic HTTP status message.
+  }
+
+  return `API isteği başarısız oldu (${response.status})`;
+}
+
+function isErrorPayload(payload: unknown): payload is { detail: unknown } {
+  return typeof payload === "object" && payload !== null && "detail" in payload;
+}
+
+function isValidationIssue(payload: unknown): payload is { msg: string } {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "msg" in payload &&
+    typeof (payload as { msg: unknown }).msg === "string"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -226,30 +304,38 @@ export function updateRiskLimits(limits: UpdateRiskLimitsRequest): Promise<Syste
 // Market data endpoints
 // ---------------------------------------------------------------------------
 
-export function getMarketCandles(symbol: string, interval: string, limit = 200): Promise<CandleSeriesResponse> {
+export function getMarketCandles(
+  symbol: string,
+  interval: string,
+  limit = 200,
+  exchange = "binance"
+): Promise<CandleSeriesResponse> {
   const params = new URLSearchParams({
     symbol,
     interval,
-    limit: String(limit)
+    limit: String(limit),
+    exchange
   });
 
   return request<CandleSeriesResponse>(`/api/market-data/candles?${params.toString()}`);
 }
 
-export function getMarketSymbols(quoteAsset?: string): Promise<MarketSymbol[]> {
+export function getMarketSymbols(quoteAsset?: string, exchange = "all"): Promise<MarketSymbol[]> {
   const params = new URLSearchParams();
   if (quoteAsset) {
     params.set("quote_asset", quoteAsset);
   }
+  params.set("exchange", exchange);
 
   return request<MarketSymbol[]>(`/api/market-data/symbols${params.size ? `?${params.toString()}` : ""}`);
 }
 
-export function getMarketTickers(quoteAsset?: string): Promise<MarketOverview> {
+export function getMarketTickers(quoteAsset?: string, exchange = "all"): Promise<MarketOverview> {
   const params = new URLSearchParams();
   if (quoteAsset) {
     params.set("quote_asset", quoteAsset);
   }
+  params.set("exchange", exchange);
 
   return request<MarketOverview>(`/api/market-data/tickers${params.size ? `?${params.toString()}` : ""}`);
 }
@@ -262,13 +348,22 @@ export function getTradingState(): Promise<TradingState> {
   return request<TradingState>("/api/trading/state");
 }
 
-export function runTradingStep(symbol: string, interval: string): Promise<TradingCycleResult> {
-  const params = new URLSearchParams({ symbol, interval });
+export function getActivationValidation(
+  symbol: string,
+  interval: string,
+  exchange = "binance"
+): Promise<ActivationValidationSummary> {
+  const params = new URLSearchParams({ symbol, interval, exchange });
+  return request<ActivationValidationSummary>(`/api/trading/validation?${params.toString()}`);
+}
+
+export function runTradingStep(symbol: string, interval: string, exchange = "binance"): Promise<TradingCycleResult> {
+  const params = new URLSearchParams({ symbol, interval, exchange });
   return request<TradingCycleResult>(`/api/trading/step?${params.toString()}`, { method: "POST" });
 }
 
-export function startTradingAutomation(symbol: string, interval: string): Promise<AutomationState> {
-  const params = new URLSearchParams({ symbol, interval });
+export function startTradingAutomation(symbol: string, interval: string, exchange = "binance"): Promise<AutomationState> {
+  const params = new URLSearchParams({ symbol, interval, exchange });
   return request<AutomationState>(`/api/trading/automation/start?${params.toString()}`, { method: "POST" });
 }
 
@@ -280,7 +375,12 @@ export function resetPaperPortfolio(): Promise<PaperPortfolio> {
   return request<PaperPortfolio>("/api/trading/reset", { method: "POST" });
 }
 
-export function runBacktest(symbol: string, interval: string, limit = 300): Promise<BacktestSummary> {
-  const params = new URLSearchParams({ symbol, interval, limit: String(limit) });
+export function runBacktest(
+  symbol: string,
+  interval: string,
+  limit = 300,
+  exchange = "binance"
+): Promise<BacktestSummary> {
+  const params = new URLSearchParams({ symbol, interval, limit: String(limit), exchange });
   return request<BacktestSummary>(`/api/trading/backtest?${params.toString()}`);
 }

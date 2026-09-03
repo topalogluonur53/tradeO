@@ -35,6 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   enableEmergencyStop,
+  getActivationValidation,
   getMarketCandles,
   getMarketSymbols,
   getMarketTickers,
@@ -47,13 +48,17 @@ import {
   runTradingStep,
   startTradingAutomation,
   stopTradingAutomation,
+  type ActivationValidationSummary,
   type AutomationState,
   type BacktestSummary,
   type MarketCandle,
   type MarketSymbol,
   type MarketTicker,
   type PaperPortfolio,
-  type SystemStatus
+  type RiskDecision,
+  type RiskLimits,
+  type SystemStatus,
+  type TradingSignal
 } from "@/lib/api";
 
 type NavigationId =
@@ -100,15 +105,11 @@ const navigation: NavigationItem[] = [
 const fallbackMarketSymbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT"];
 const marketIntervals = ["1m", "5m", "15m", "1h", "4h", "1d"];
 const quoteAssets = ["USDT", "FDUSD", "USDC", "BTC", "ETH", "BNB", "TRY", "EUR"];
-
-const strategyRows = [
-  ["EMA + RSI", "Hazır", "TRENDING_UP"],
-  ["Donchian ATR", "Hazır", "HIGH_VOLATILITY"],
-  ["Bollinger MR", "Hazır", "RANGING"],
-  ["MACD Devamlılık", "Hazır", "TRENDING_UP"],
-  ["Volatilite Filtresi", "Hazır", "UNCERTAIN"],
-  ["Hacim Doğrulaması", "Hazır", "LOW_LIQUIDITY"]
-] as const;
+const exchangeLabels: Record<string, string> = {
+  all: "Binance + OKX",
+  binance: "Binance",
+  okx: "OKX"
+};
 
 const orderPolicies = [
   ["Long spot emir", "Paper mode dışında engelli"],
@@ -126,6 +127,7 @@ export default function Home() {
   const [systemError, setSystemError] = useState<string | null>(null);
   const [updatingControl, setUpdatingControl] = useState(false);
   const [marketSymbol, setMarketSymbol] = useState("BTCUSDT");
+  const [marketExchange, setMarketExchange] = useState("all");
   const [marketInterval, setMarketInterval] = useState("1h");
   const [quoteAsset, setQuoteAsset] = useState("USDT");
   const [marketSearch, setMarketSearch] = useState("");
@@ -136,12 +138,19 @@ export default function Home() {
   const [marketListLoading, setMarketListLoading] = useState(true);
   const [marketError, setMarketError] = useState<string | null>(null);
   const [marketListError, setMarketListError] = useState<string | null>(null);
+  const [marketDataSource, setMarketDataSource] = useState<string | null>(null);
+  const [marketListSource, setMarketListSource] = useState<string | null>(null);
   const [portfolio, setPortfolio] = useState<PaperPortfolio | null>(null);
   const [automation, setAutomation] = useState<AutomationState | null>(null);
+  const [activationValidation, setActivationValidation] = useState<ActivationValidationSummary | null>(null);
+  const [activationValidationLoading, setActivationValidationLoading] = useState(true);
+  const [activationValidationError, setActivationValidationError] = useState<string | null>(null);
   const [tradingLoading, setTradingLoading] = useState(true);
   const [lastTradingAction, setLastTradingAction] = useState<string>("IDLE");
   const [lastTradingReason, setLastTradingReason] = useState<string>("Bot başlatılmadı.");
   const [lastSignalSide, setLastSignalSide] = useState<string>("-");
+  const [lastSignal, setLastSignal] = useState<TradingSignal | null>(null);
+  const [lastRiskDecision, setLastRiskDecision] = useState<RiskDecision | null>(null);
   const [backtestSummary, setBacktestSummary] = useState<BacktestSummary | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestSymbol, setBacktestSymbol] = useState("BTC/USDT");
@@ -194,16 +203,18 @@ export default function Home() {
     setMarketLoading(true);
     setMarketError(null);
     try {
-      const series = await getMarketCandles(marketSymbol, marketInterval, 200);
+      const series = await getMarketCandles(marketSymbol, marketInterval, 200, marketExchange);
       setMarketCandles(series.candles);
+      setMarketDataSource(series.source);
       appendAuditEvent({
         source: "Market Data",
-        message: `${series.symbol} ${series.interval} mum verisi yüklendi.`,
+        message: `${series.symbol} ${series.interval} mum verisi yüklendi (${formatMarketSource(series.source)}).`,
         tone: "paper"
       });
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Piyasa verisi alınamadı.";
       setMarketCandles([]);
+      setMarketDataSource(null);
       setMarketError(message);
       appendAuditEvent({
         source: "Market Data",
@@ -213,7 +224,7 @@ export default function Home() {
     } finally {
       setMarketLoading(false);
     }
-  }, [appendAuditEvent, marketInterval, marketSymbol]);
+  }, [appendAuditEvent, marketExchange, marketInterval, marketSymbol]);
 
   const loadMarketListings = useCallback(async () => {
     setMarketListLoading(true);
@@ -225,14 +236,16 @@ export default function Home() {
       ]);
       setMarketSymbols(symbols);
       setMarketTickers(overview.tickers);
+      setMarketListSource(overview.source);
       appendAuditEvent({
         source: "Market List",
-        message: `${overview.total} Binance ${quoteAsset} marketi yüklendi.`,
+        message: `${overview.total} ${quoteAsset} marketi yüklendi (${formatMarketSource(overview.source)}).`,
         tone: "paper"
       });
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Market listesi alınamadı.";
       setMarketListError(message);
+      setMarketListSource(null);
       appendAuditEvent({
         source: "Market List",
         message,
@@ -251,6 +264,8 @@ export default function Home() {
       setAutomation(state.automation);
       setLastTradingAction(state.automation.last_action);
       setLastTradingReason(state.automation.last_reason);
+      setLastSignal(state.automation.last_signal);
+      setLastRiskDecision(state.automation.last_risk_decision);
     } catch (requestError) {
       appendAuditEvent({
         source: "Trading",
@@ -261,6 +276,33 @@ export default function Home() {
       setTradingLoading(false);
     }
   }, [appendAuditEvent]);
+
+  const loadActivationValidation = useCallback(async () => {
+    setActivationValidationLoading(true);
+    try {
+      const validation = await getActivationValidation(marketSymbol, marketInterval, marketExchange);
+      setActivationValidation(validation);
+      setActivationValidationError(null);
+      appendAuditEvent({
+        source: "Validation",
+        message: validation.ready
+          ? "Paper bot aktivasyon doğrulaması tamamlandı."
+          : "Paper bot aktivasyon doğrulaması bekliyor.",
+        tone: validation.ready ? "paper" : "warning"
+      });
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : "Aktivasyon doğrulaması alınamadı.";
+      setActivationValidation(null);
+      setActivationValidationError(message);
+      appendAuditEvent({
+        source: "Validation",
+        message,
+        tone: "warning"
+      });
+    } finally {
+      setActivationValidationLoading(false);
+    }
+  }, [appendAuditEvent, marketExchange, marketInterval, marketSymbol]);
 
   useEffect(() => {
     const initialRequestId = window.setTimeout(() => void loadStatus(), 0);
@@ -290,6 +332,11 @@ export default function Home() {
     };
   }, [loadTradingState]);
 
+  useEffect(() => {
+    const requestId = window.setTimeout(() => void loadActivationValidation(), 0);
+    return () => window.clearTimeout(requestId);
+  }, [loadActivationValidation]);
+
   const selectSection = (id: NavigationId) => {
     setActiveSection(id);
     setMobileNavigationOpen(false);
@@ -302,7 +349,7 @@ export default function Home() {
 
   const refreshAll = async () => {
     setSystemLoading(true);
-    await Promise.all([loadStatus(), loadMarketData(), loadMarketListings(), loadTradingState()]);
+    await Promise.all([loadStatus(), loadMarketData(), loadMarketListings(), loadTradingState(), loadActivationValidation()]);
     appendAuditEvent({
       source: "API",
       message: "Sistem ve piyasa verisi elle yenilendi.",
@@ -340,11 +387,13 @@ export default function Home() {
   const runOneTradingCycle = async () => {
     setTradingLoading(true);
     try {
-      const result = await runTradingStep(marketSymbol, marketInterval);
+      const result = await runTradingStep(marketSymbol, marketInterval, marketExchange);
       setPortfolio(result.portfolio);
       setLastTradingAction(result.action);
       setLastTradingReason(result.reason);
       setLastSignalSide(result.signal?.side ?? "-");
+      setLastSignal(result.signal);
+      setLastRiskDecision(result.risk_decision);
       appendAuditEvent({
         source: "Trading",
         message: `${result.action}: ${result.reason}`,
@@ -367,7 +416,7 @@ export default function Home() {
     try {
       const nextAutomation = automation?.running
         ? await stopTradingAutomation()
-        : await startTradingAutomation(marketSymbol, marketInterval);
+        : await startTradingAutomation(marketSymbol, marketInterval, marketExchange);
       setAutomation(nextAutomation);
       setLastTradingAction(nextAutomation.last_action);
       setLastTradingReason(nextAutomation.last_reason);
@@ -394,6 +443,8 @@ export default function Home() {
       setPortfolio(nextPortfolio);
       setLastTradingAction("RESET");
       setLastTradingReason("Paper portföy sıfırlandı.");
+      setLastSignal(null);
+      setLastRiskDecision(null);
       appendAuditEvent({
         source: "Trading",
         message: "Paper portföy sıfırlandı.",
@@ -407,7 +458,7 @@ export default function Home() {
   const runBacktestNow = async () => {
     setBacktestLoading(true);
     try {
-      const summary = await runBacktest(backtestSymbol.replace("/", ""), marketInterval, 300);
+      const summary = await runBacktest(backtestSymbol.replace("/", ""), marketInterval, 300, marketExchange);
       setBacktestSummary(summary);
       appendAuditEvent({
         source: "Backtest",
@@ -420,6 +471,13 @@ export default function Home() {
   };
 
   const activeItem = navigation.find((item) => item.id === activeSection) ?? navigation[0];
+  const marketSourceLabel = marketDataSource?.startsWith("offline_paper")
+    ? "PAPER DATA"
+    : "MARKET DATA";
+  const selectMarket = (symbol: string, exchange = marketExchange) => {
+    setMarketSymbol(symbol);
+    setMarketExchange(exchange);
+  };
 
   return (
     <main className="min-h-screen text-textPrimary">
@@ -469,24 +527,10 @@ export default function Home() {
 
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <ConnectionBadge status={status} error={systemError} loading={systemLoading} />
-                <Badge tone={marketError ? "warning" : "paper"}>{marketError ? "PİYASA VERİSİ YOK" : "MARKET DATA"}</Badge>
+                <Badge tone={marketError ? "warning" : "paper"}>{marketError ? "PİYASA VERİSİ YOK" : marketSourceLabel}</Badge>
                 <Button variant="secondary" disabled={systemLoading || marketLoading} onClick={() => void refreshAll()} aria-label="Sistemi yenile">
                   <RefreshCw className={`h-4 w-4 ${systemLoading || marketLoading ? "animate-spin" : ""}`} aria-hidden="true" />
                   Yenile
-                </Button>
-                <Button
-                  variant={status?.trading_halted ? "secondary" : "danger"}
-                  disabled={systemLoading || updatingControl || !status}
-                  onClick={() => void toggleTradingControl()}
-                >
-                  {updatingControl ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  ) : status?.trading_halted ? (
-                    <PlayCircle className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <AlertOctagon className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  {status?.trading_halted ? "Paper Modu Sürdür" : "Acil Durdur"}
                 </Button>
               </div>
             </div>
@@ -515,6 +559,7 @@ export default function Home() {
                 updatingControl={updatingControl}
                 auditEvents={auditEvents}
                 marketSymbol={marketSymbol}
+                marketExchange={marketExchange}
                 marketInterval={marketInterval}
                 marketCandles={marketCandles}
                 marketSymbols={marketSymbols}
@@ -523,14 +568,20 @@ export default function Home() {
                 marketListLoading={marketListLoading}
                 marketError={marketError}
                 marketListError={marketListError}
+                marketListSource={marketListSource}
                 quoteAsset={quoteAsset}
                 marketSearch={marketSearch}
                 portfolio={portfolio}
                 automation={automation}
+                activationValidation={activationValidation}
+                activationValidationLoading={activationValidationLoading}
+                activationValidationError={activationValidationError}
                 tradingLoading={tradingLoading}
                 lastTradingAction={lastTradingAction}
                 lastTradingReason={lastTradingReason}
                 lastSignalSide={lastSignalSide}
+                lastSignal={lastSignal}
+                lastRiskDecision={lastRiskDecision}
                 backtestSummary={backtestSummary}
                 backtestLoading={backtestLoading}
                 backtestSymbol={backtestSymbol}
@@ -543,12 +594,13 @@ export default function Home() {
                 onResetPortfolio={resetPortfolio}
                 onRunBacktest={runBacktestNow}
                 onToggleTradingControl={toggleTradingControl}
-                onMarketSymbolChange={setMarketSymbol}
+                onMarketSymbolChange={selectMarket}
                 onMarketIntervalChange={setMarketInterval}
                 onQuoteAssetChange={setQuoteAsset}
                 onMarketSearchChange={setMarketSearch}
                 onBacktestSymbolChange={setBacktestSymbol}
                 onBacktestWindowChange={setBacktestWindow}
+                onSystemStatusChange={setStatus}
               />
             )}
           </div>
@@ -564,6 +616,7 @@ function TerminalSection(props: {
   updatingControl: boolean;
   auditEvents: AuditEvent[];
   marketSymbol: string;
+  marketExchange: string;
   marketInterval: string;
   marketCandles: MarketCandle[];
   marketSymbols: MarketSymbol[];
@@ -572,14 +625,20 @@ function TerminalSection(props: {
   marketListLoading: boolean;
   marketError: string | null;
   marketListError: string | null;
+  marketListSource: string | null;
   quoteAsset: string;
   marketSearch: string;
   portfolio: PaperPortfolio | null;
   automation: AutomationState | null;
+  activationValidation: ActivationValidationSummary | null;
+  activationValidationLoading: boolean;
+  activationValidationError: string | null;
   tradingLoading: boolean;
   lastTradingAction: string;
   lastTradingReason: string;
   lastSignalSide: string;
+  lastSignal: TradingSignal | null;
+  lastRiskDecision: RiskDecision | null;
   backtestSummary: BacktestSummary | null;
   backtestLoading: boolean;
   backtestSymbol: string;
@@ -592,12 +651,13 @@ function TerminalSection(props: {
   onResetPortfolio: () => Promise<void>;
   onRunBacktest: () => Promise<void>;
   onToggleTradingControl: () => Promise<void>;
-  onMarketSymbolChange: (value: string) => void;
+  onMarketSymbolChange: (symbol: string, exchange?: string) => void;
   onMarketIntervalChange: (value: string) => void;
   onQuoteAssetChange: (value: string) => void;
   onMarketSearchChange: (value: string) => void;
   onBacktestSymbolChange: (value: string) => void;
   onBacktestWindowChange: (value: string) => void;
+  onSystemStatusChange: (value: SystemStatus) => void;
 }) {
   switch (props.activeSection) {
     case "markets":
@@ -605,7 +665,15 @@ function TerminalSection(props: {
     case "ai-trader":
       return <AiTraderSection status={props.status} marketCandles={props.marketCandles} />;
     case "strategies":
-      return <StrategiesSection status={props.status} marketCandles={props.marketCandles} />;
+      return (
+        <StrategiesSection
+          status={props.status}
+          marketCandles={props.marketCandles}
+          activationValidation={props.activationValidation}
+          activationValidationLoading={props.activationValidationLoading}
+          activationValidationError={props.activationValidationError}
+        />
+      );
     case "backtest":
       return <BacktestSection {...props} />;
     case "paper-trading":
@@ -615,7 +683,7 @@ function TerminalSection(props: {
     case "orders":
       return <OrdersSection status={props.status} portfolio={props.portfolio} />;
     case "risk":
-      return <RiskSection status={props.status} />;
+      return <RiskSection status={props.status} onSystemStatusChange={props.onSystemStatusChange} />;
     case "logs":
       return <LogsSection events={props.auditEvents} onRefresh={props.onRefreshAll} loading={props.marketLoading} />;
     case "settings":
@@ -669,6 +737,7 @@ function Navigation({ activeSection, onSelect }: { activeSection: NavigationId; 
 function Dashboard({
   status,
   marketSymbol,
+  marketExchange,
   marketInterval,
   marketCandles,
   marketSymbols,
@@ -676,14 +745,19 @@ function Dashboard({
   marketError,
   portfolio,
   automation,
+  activationValidation,
+  activationValidationLoading,
+  activationValidationError,
   lastTradingAction,
   lastSignalSide,
   onRefreshMarket,
   onMarketSymbolChange,
-  onMarketIntervalChange
+  onMarketIntervalChange,
+  onSystemStatusChange
 }: {
   status: SystemStatus | null;
   marketSymbol: string;
+  marketExchange: string;
   marketInterval: string;
   marketCandles: MarketCandle[];
   marketSymbols: MarketSymbol[];
@@ -691,11 +765,15 @@ function Dashboard({
   marketError: string | null;
   portfolio: PaperPortfolio | null;
   automation: AutomationState | null;
+  activationValidation: ActivationValidationSummary | null;
+  activationValidationLoading: boolean;
+  activationValidationError: string | null;
   lastTradingAction: string;
   lastSignalSide: string;
   onRefreshMarket: () => Promise<void>;
-  onMarketSymbolChange: (value: string) => void;
+  onMarketSymbolChange: (symbol: string, exchange?: string) => void;
   onMarketIntervalChange: (value: string) => void;
+  onSystemStatusChange: (value: SystemStatus) => void;
 }) {
   const latest = marketCandles.at(-1);
   const previous = marketCandles.at(-2);
@@ -704,7 +782,7 @@ function Dashboard({
   return (
     <div className="space-y-5">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Metric label="Sembol" value={marketSymbol} helper={marketInterval} tone="paper" />
+        <Metric label="Sembol" value={marketSymbol} helper={`${formatExchange(marketExchange)} / ${marketInterval}`} tone="paper" />
         <Metric label="Son Fiyat" value={latest ? formatPrice(latest.close) : "-"} helper="Public market data" tone="paper" />
         <Metric label="Son Mum" value={formatSignedPercent(changePct)} helper="Önceki muma göre" tone={changePct && changePct < 0 ? "danger" : "paper"} />
         <Metric label="Paper Equity" value={portfolio ? formatMoney(portfolio.equity) : "-"} helper="Simülasyon bakiyesi" tone="paper" />
@@ -726,13 +804,17 @@ function Dashboard({
           <TradingChart candles={marketCandles} loading={marketLoading} error={marketError} />
         </div>
         <div className="grid gap-5">
-          <BotStatus status={status} />
-          <RiskPanel status={status} />
+          <BotStatus status={status} automation={automation} />
+          <RiskPanel status={status} onSystemStatusChange={onSystemStatusChange} />
         </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <StrategiesTable />
+        <StrategiesTable
+          validation={activationValidation}
+          loading={activationValidationLoading}
+          error={activationValidationError}
+        />
         <PlatformStatus status={status} marketCandles={marketCandles} marketError={marketError} />
       </section>
     </div>
@@ -741,6 +823,7 @@ function Dashboard({
 
 function MarketsSection({
   marketSymbol,
+  marketExchange,
   marketInterval,
   marketCandles,
   marketSymbols,
@@ -749,6 +832,7 @@ function MarketsSection({
   marketListLoading,
   marketError,
   marketListError,
+  marketListSource,
   quoteAsset,
   marketSearch,
   onRefreshMarket,
@@ -759,6 +843,7 @@ function MarketsSection({
   onMarketSearchChange
 }: {
   marketSymbol: string;
+  marketExchange: string;
   marketInterval: string;
   marketCandles: MarketCandle[];
   marketSymbols: MarketSymbol[];
@@ -767,11 +852,12 @@ function MarketsSection({
   marketListLoading: boolean;
   marketError: string | null;
   marketListError: string | null;
+  marketListSource: string | null;
   quoteAsset: string;
   marketSearch: string;
   onRefreshMarket: () => Promise<void>;
   onRefreshMarketList: () => Promise<void>;
-  onMarketSymbolChange: (value: string) => void;
+  onMarketSymbolChange: (symbol: string, exchange?: string) => void;
   onMarketIntervalChange: (value: string) => void;
   onQuoteAssetChange: (value: string) => void;
   onMarketSearchChange: (value: string) => void;
@@ -780,7 +866,7 @@ function MarketsSection({
 
   return (
     <div className="space-y-5">
-      <SectionHeader icon={CandlestickChart} title="Piyasalar" description="Binance public candle adapter aktif" />
+      <SectionHeader icon={CandlestickChart} title="Piyasalar" description="Binance ve OKX spot marketleri" />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-3">
           <MarketToolbar
@@ -795,16 +881,23 @@ function MarketsSection({
           <TradingChart candles={marketCandles} loading={marketLoading} error={marketError} />
         </div>
         <div className="grid gap-5">
-          <InfoCard icon={Database} title="Binance Public Candles" badge={marketError ? "Hata" : "Bağlı"} badgeTone={marketError ? "warning" : "paper"}>
+          <InfoCard icon={Database} title="Public Candles" badge={marketError ? "Hata" : "Bağlı"} badgeTone={marketError ? "warning" : "paper"}>
             <div className="grid gap-3 text-sm">
+              <StatusLine label="Borsa" value={formatExchange(marketExchange)} />
               <StatusLine label="Sembol" value={marketSymbol} />
               <StatusLine label="Aralık" value={marketInterval} />
               <StatusLine label="Mum sayısı" value={String(marketCandles.length)} />
               <StatusLine label="Son fiyat" value={latest ? formatPrice(latest.close) : "-"} />
             </div>
           </InfoCard>
-          <InfoCard icon={Database} title="Binance Market Listesi" badge={marketListError ? "Hata" : "Aktif"} badgeTone={marketListError ? "warning" : "paper"}>
+          <InfoCard
+            icon={Database}
+            title="Market Listesi"
+            badge={marketListError ? "Hata" : marketListSource?.startsWith("offline_paper") ? "Paper" : "Aktif"}
+            badgeTone={marketListError ? "warning" : "paper"}
+          >
             <div className="grid gap-3 text-sm">
+              <StatusLine label="Kaynak" value={marketListSource ? formatMarketSource(marketListSource) : "-"} />
               <StatusLine label="Quote filtresi" value={quoteAsset} />
               <StatusLine label="Spot sembol" value={String(marketSymbols.length)} />
               <StatusLine label="Ticker" value={String(marketTickers.length)} />
@@ -859,17 +952,40 @@ function AiTraderSection({ status, marketCandles }: { status: SystemStatus | nul
   );
 }
 
-function StrategiesSection({ status, marketCandles }: { status: SystemStatus | null; marketCandles: MarketCandle[] }) {
+function StrategiesSection({
+  status,
+  marketCandles,
+  activationValidation,
+  activationValidationLoading,
+  activationValidationError
+}: {
+  status: SystemStatus | null;
+  marketCandles: MarketCandle[];
+  activationValidation: ActivationValidationSummary | null;
+  activationValidationLoading: boolean;
+  activationValidationError: string | null;
+}) {
+  const validationReady = Boolean(activationValidation?.ready) && !status?.trading_halted;
   return (
     <div className="space-y-5">
       <SectionHeader icon={SlidersHorizontal} title="Stratejiler" description="Hazır strateji şablonları ve aktivasyon güvenliği" />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <StrategiesTable />
-        <InfoCard icon={ShieldCheck} title="Aktivasyon Kilidi" badge={status?.trading_halted ? "Kapalı" : "Paper"} badgeTone={status?.trading_halted ? "warning" : "paper"}>
+        <StrategiesTable
+          validation={activationValidation}
+          loading={activationValidationLoading}
+          error={activationValidationError}
+        />
+        <InfoCard
+          icon={ShieldCheck}
+          title="Aktivasyon Kilidi"
+          badge={validationReady ? "Tamam" : status?.trading_halted ? "Kapalı" : "Bekliyor"}
+          badgeTone={validationReady ? "paper" : "warning"}
+        >
           <div className="grid gap-3 text-sm">
             <StatusLine label="Market data" value={marketCandles.length ? "Aktif" : "Bekliyor"} />
-            <StatusLine label="Backtest zorunlu" value="Evet" />
-            <StatusLine label="Out-of-sample zorunlu" value="Evet" />
+            <StatusLine label="Doğrulama" value={activationValidation?.ready ? "Tamamlandı" : "Bekliyor"} />
+            <StatusLine label="Kontrol sayısı" value={activationValidation ? `${activationValidation.rows.filter((row) => row.passed).length}/${activationValidation.rows.length}` : "-"} />
+            <StatusLine label="Kill switch" value={status?.trading_halted ? "Etkin" : "Pasif"} />
             <StatusLine label="Canlı emir" value="Kapalı" />
           </div>
         </InfoCard>
@@ -935,11 +1051,11 @@ function PaperTradingSection({
   tradingLoading,
   lastTradingAction,
   lastTradingReason,
-  updatingControl,
+  lastSignal,
+  lastRiskDecision,
   onRunTradingCycle,
   onToggleAutomation,
-  onResetPortfolio,
-  onToggleTradingControl
+  onResetPortfolio
 }: {
   status: SystemStatus | null;
   portfolio: PaperPortfolio | null;
@@ -947,11 +1063,11 @@ function PaperTradingSection({
   tradingLoading: boolean;
   lastTradingAction: string;
   lastTradingReason: string;
-  updatingControl: boolean;
+  lastSignal: TradingSignal | null;
+  lastRiskDecision: RiskDecision | null;
   onRunTradingCycle: () => Promise<void>;
   onToggleAutomation: () => Promise<void>;
   onResetPortfolio: () => Promise<void>;
-  onToggleTradingControl: () => Promise<void>;
 }) {
   const halted = status?.trading_halted ?? true;
   const running = automation?.running ?? false;
@@ -962,31 +1078,21 @@ function PaperTradingSection({
         title="Kağıt İşlem"
         description="Gerçek emir göndermeyen güvenli yürütme alanı"
         action={
-          <div className="flex flex-wrap gap-2">
-            <Button variant={running ? "danger" : "primary"} disabled={tradingLoading || halted} onClick={() => void onToggleAutomation()}>
-              {running ? <PauseCircle className="h-4 w-4" aria-hidden="true" /> : <PlayCircle className="h-4 w-4" aria-hidden="true" />}
-              {running ? "Botu Durdur" : "Botu Başlat"}
-            </Button>
-            <Button variant={halted ? "secondary" : "danger"} disabled={!status || updatingControl} onClick={() => void onToggleTradingControl()}>
-              <AlertOctagon className="h-4 w-4" aria-hidden="true" />
-              {halted ? "Paper Modu Sürdür" : "Acil Durdur"}
-            </Button>
-          </div>
+          <Button variant={running ? "danger" : "primary"} disabled={tradingLoading || halted} onClick={() => void onToggleAutomation()}>
+            {running ? <PauseCircle className="h-4 w-4" aria-hidden="true" /> : <PlayCircle className="h-4 w-4" aria-hidden="true" />}
+            {running ? "Botu Durdur" : "Botu Başlat"}
+          </Button>
         }
       />
+      {halted ? (
+        <div className="rounded-md border border-amber/50 bg-amber/10 px-4 py-3 text-sm text-textMuted">
+          Paper işlemler güvenlik nedeniyle duraklatıldı. Devam etmek için Ayarlar bölümünden paper modu sürdürün.
+        </div>
+      ) : null}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="rounded-md border border-line bg-panel">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-            <h2 className="text-sm font-black uppercase tracking-normal">Paper Emir Akışı</h2>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" disabled={tradingLoading || halted} onClick={() => void onRunTradingCycle()}>
-                <RefreshCw className={`h-4 w-4 ${tradingLoading ? "animate-spin" : ""}`} aria-hidden="true" />
-                Tek Döngü
-              </Button>
-              <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void onResetPortfolio()}>
-                Portföyü Sıfırla
-              </Button>
-            </div>
+          <div className="border-b border-line px-4 py-3">
+            <h2 className="text-sm font-black uppercase tracking-normal">Paper Portföy</h2>
           </div>
           <div className="grid gap-3 p-4 text-sm">
             <StatusLine label="Otomasyon" value={running ? "Çalışıyor" : "Kapalı"} />
@@ -998,9 +1104,82 @@ function PaperTradingSection({
           </div>
           <PositionsTable portfolio={portfolio} />
         </section>
-        <BotStatus status={status} />
+        <div className="grid gap-5">
+          <BotStatus status={status} automation={automation} />
+          <SignalDecisionPanel
+            action={lastTradingAction}
+            reason={lastTradingReason}
+            signal={lastSignal}
+            riskDecision={lastRiskDecision}
+          />
+        </div>
       </div>
+      <details className="rounded-md border border-line bg-panel">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-textMuted">Gelişmiş test araçları</summary>
+        <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
+          <Button variant="secondary" disabled={tradingLoading || halted} onClick={() => void onRunTradingCycle()}>
+            <RefreshCw className={`h-4 w-4 ${tradingLoading ? "animate-spin" : ""}`} aria-hidden="true" />
+            Tek döngü çalıştır
+          </Button>
+          <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void onResetPortfolio()}>
+            Portföyü sıfırla
+          </Button>
+        </div>
+      </details>
     </div>
+  );
+}
+
+function SignalDecisionPanel({
+  action,
+  reason,
+  signal,
+  riskDecision
+}: {
+  action: string;
+  reason: string;
+  signal: TradingSignal | null;
+  riskDecision: RiskDecision | null;
+}) {
+  return (
+    <section className="rounded-md border border-line bg-panel p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-black uppercase tracking-normal">Son Karar</h2>
+          <p className="text-xs text-textMuted">Strateji filtresi ve risk sonucu</p>
+        </div>
+        <Badge tone={signal?.side === "BUY" ? "paper" : action.includes("REJECTED") ? "warning" : "neutral"}>
+          {signal?.side ?? action}
+        </Badge>
+      </div>
+
+      <div className="mt-4 grid gap-3 text-sm">
+        <StatusLine label="Güven" value={signal ? formatPercent(signal.confidence) : "-"} />
+        <StatusLine label="Rejim" value={signal?.market_regime ?? "-"} />
+        <StatusLine label="Giriş" value={signal ? formatPrice(signal.entry_price) : "-"} />
+        <StatusLine label="Stop / TP" value={signal ? `${formatPrice(signal.stop_loss)} / ${formatPrice(signal.take_profit)}` : "-"} />
+        <StatusLine label="Risk" value={riskDecision ? riskDecision.reason : "-"} />
+      </div>
+
+      <p className="mt-4 rounded-md bg-panelMuted/70 px-3 py-2 text-xs text-textMuted">{reason}</p>
+
+      {signal?.filters.length ? (
+        <div className="mt-4 grid gap-2">
+          {signal.filters.map((filter) => (
+            <div key={filter.key} className="grid gap-2 rounded-md border border-line/70 bg-panelMuted/45 px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-textPrimary">{filter.label}</span>
+                <Badge tone={filter.passed ? "paper" : "warning"}>{filter.passed ? "Geçti" : "Kaldı"}</Badge>
+              </div>
+              <div className="grid gap-1 text-textMuted">
+                <span>Mevcut: {filter.actual}</span>
+                <span>Gerekli: {filter.required}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1056,12 +1235,18 @@ function OrdersSection({ status, portfolio }: { status: SystemStatus | null; por
   );
 }
 
-function RiskSection({ status }: { status: SystemStatus | null }) {
+function RiskSection({
+  status,
+  onSystemStatusChange
+}: {
+  status: SystemStatus | null;
+  onSystemStatusChange: (value: SystemStatus) => void;
+}) {
   return (
     <div className="space-y-5">
       <SectionHeader icon={ShieldCheck} title="Risk Merkezi" description="Backend kaynaklı deterministik risk sınırları" />
       <div className="grid gap-5 xl:grid-cols-2">
-        <RiskPanel status={status} />
+        <RiskPanel status={status} onSystemStatusChange={onSystemStatusChange} />
         <PlatformStatus status={status} marketCandles={[]} marketError={null} />
       </div>
     </div>
@@ -1224,29 +1409,49 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-left text-sm">
+    <div className="overflow-hidden">
+      <table className="w-full table-fixed text-left text-xs xl:text-sm">
         <thead className="text-xs uppercase text-textMuted">
           <tr className="border-b border-line">
-            <th className="px-4 py-3 font-bold">Sembol</th>
-            <th className="px-4 py-3 font-bold">Miktar</th>
-            <th className="px-4 py-3 font-bold">Giriş</th>
-            <th className="px-4 py-3 font-bold">Stop</th>
-            <th className="px-4 py-3 font-bold">Take Profit</th>
-            <th className="px-4 py-3 font-bold">Strateji</th>
+            <th className="w-[15%] px-3 py-3 font-bold">Sembol</th>
+            <th className="w-[14%] px-3 py-3 font-bold text-right">Miktar</th>
+            <th className="w-[12%] px-3 py-3 font-bold text-right">Giriş</th>
+            <th className="w-[12%] px-3 py-3 font-bold text-right">Güncel</th>
+            <th className="w-[13%] px-3 py-3 font-bold text-right">K/Z</th>
+            <th className="w-[11%] px-3 py-3 font-bold text-right">Stop</th>
+            <th className="w-[13%] px-3 py-3 font-bold text-right">Hedef</th>
+            <th className="w-[10%] px-3 py-3 font-bold text-right">Str.</th>
           </tr>
         </thead>
         <tbody>
-          {positions.map((position) => (
-            <tr key={position.id} className="border-b border-line/70 last:border-0">
-              <td className="px-4 py-3 font-semibold">{position.symbol}</td>
-              <td className="px-4 py-3 text-textMuted">{formatQuantity(position.quantity)}</td>
-              <td className="px-4 py-3">{formatPrice(position.entry_price)}</td>
-              <td className="px-4 py-3 text-rose-100">{formatPrice(position.stop_loss)}</td>
-              <td className="px-4 py-3 text-teal-100">{formatPrice(position.take_profit)}</td>
-              <td className="px-4 py-3 text-textMuted">{position.strategy}</td>
-            </tr>
-          ))}
+          {positions.map((position) => {
+            const pnl = position.unrealized_pnl ?? 0;
+            const pnlPct = position.unrealized_pnl_pct ?? 0;
+            const pnlClass = pnl >= 0 ? "text-teal-100" : "text-rose-100";
+            const strategyLabel = position.strategy.replace("_SPOT_LONG", "").replace("EMA_RSI", "EMA");
+
+            return (
+              <tr key={position.id} className="border-b border-line/70 last:border-0">
+                <td className="truncate px-3 py-3 font-semibold" title={position.symbol}>{position.symbol}</td>
+                <td className="truncate px-3 py-3 text-right text-textMuted" title={formatQuantity(position.quantity)}>
+                  {formatQuantity(position.quantity)}
+                </td>
+                <td className="truncate px-3 py-3 text-right" title={formatPrice(position.entry_price)}>{formatPrice(position.entry_price)}</td>
+                <td className="truncate px-3 py-3 text-right" title={formatPrice(position.current_price ?? position.entry_price)}>
+                  {formatPrice(position.current_price ?? position.entry_price)}
+                </td>
+                <td className={`px-3 py-3 text-right font-black ${pnlClass}`}>
+                  <div>{formatSignedMoney(pnl)}</div>
+                  <div className="text-xs">{formatSignedPercent(pnlPct)}</div>
+                </td>
+                <td className="truncate px-3 py-3 text-right text-rose-100" title={formatPrice(position.stop_loss)}>{formatPrice(position.stop_loss)}</td>
+                <td className="truncate px-3 py-3 text-right text-teal-100" title={formatPrice(position.take_profit)}>
+                  {formatPrice(position.take_profit)}
+                </td>
+                <td className="truncate px-3 py-3 text-right text-textMuted" title={position.strategy}>{strategyLabel}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1291,20 +1496,37 @@ function TradesTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
   );
 }
 
-function BotStatus({ status }: { status: SystemStatus | null }) {
+function BotStatus({
+  status,
+  automation
+}: {
+  status: SystemStatus | null;
+  automation: AutomationState | null;
+}) {
   const halted = status?.trading_halted ?? true;
+  const running = automation?.running ?? false;
+  const statusLabel = halted ? "DURDURULDU" : running ? "ÇALIŞIYOR" : "KAPALI";
+  const statusTone = halted ? "warning" : running ? "paper" : "neutral";
   return (
     <section className="rounded-md border border-line bg-panel p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-black uppercase tracking-normal">Bot Durumu</h2>
-          <p className="text-xs text-textMuted">{halted ? "Yeni sinyal ve emirler engelli" : "Güvenli paper-mode beklemede"}</p>
+          <p className="text-xs text-textMuted">
+            {halted
+              ? "Yeni sinyal ve emirler engelli"
+              : running
+                ? "Otomatik paper taraması çalışıyor"
+                : "Bot manuel olarak başlatılmayı bekliyor"}
+          </p>
         </div>
-        <Badge tone={halted ? "warning" : "paper"}>{halted ? "DURDURULDU" : "HAZIR"}</Badge>
+        <Badge tone={statusTone}>{statusLabel}</Badge>
       </div>
       <div className="mt-4 grid gap-3 text-sm">
         <StatusLine label="İşlem modu" value={status?.trading_mode === "testnet" ? "Testnet" : "Kağıt işlem"} />
-        <StatusLine label="Worker" value={status?.worker_state === "halted" ? "Durduruldu" : "Güvenli beklemede"} />
+        <StatusLine label="Otomasyon" value={running ? "Aktif" : halted ? "Güvenlik kilitli" : "Kapalı"} />
+        <StatusLine label="Tarama" value={automation ? `${formatExchange(automation.exchange)} / ${automation.interval}` : "-"} />
+        <StatusLine label="Son döngü" value={automation?.last_cycle_at ? formatTime(automation.last_cycle_at) : "Henüz çalışmadı"} />
         <StatusLine label="Gerçek emirler" value="Devre dışı" />
         <StatusLine label="YZ emir erişimi" value="Engellendi" />
       </div>
@@ -1312,29 +1534,127 @@ function BotStatus({ status }: { status: SystemStatus | null }) {
   );
 }
 
-function RiskPanel({ status }: { status: SystemStatus | null }) {
+type EditableRiskLimits = Omit<RiskLimits, "stop_loss_required">;
+
+const defaultRiskLimitFormData: EditableRiskLimits = {
+  risk_per_trade: 0.005,
+  max_single_position_pct: 0.1,
+  max_total_exposure_pct: 0.3,
+  max_open_positions: 3,
+  daily_loss_limit_pct: 0.02,
+  max_drawdown_limit_pct: 0.08,
+  min_risk_reward: 1.5,
+  cooldown_after_losses: 3
+};
+
+function createRiskLimitFormData(limits: RiskLimits | null | undefined): EditableRiskLimits {
+  if (!limits) {
+    return defaultRiskLimitFormData;
+  }
+
+  return {
+    risk_per_trade: limits.risk_per_trade,
+    max_single_position_pct: limits.max_single_position_pct,
+    max_total_exposure_pct: limits.max_total_exposure_pct,
+    max_open_positions: limits.max_open_positions,
+    daily_loss_limit_pct: limits.daily_loss_limit_pct,
+    max_drawdown_limit_pct: limits.max_drawdown_limit_pct,
+    min_risk_reward: limits.min_risk_reward,
+    cooldown_after_losses: limits.cooldown_after_losses
+  };
+}
+
+function validateRiskLimitForm(formData: EditableRiskLimits): string | null {
+  const numericValues = Object.values(formData);
+  if (numericValues.some((value) => !Number.isFinite(value))) {
+    return "Tüm risk limitleri sayısal olmalı.";
+  }
+
+  if (formData.risk_per_trade <= 0 || formData.risk_per_trade > 0.05) {
+    return "İşlem başına risk 0 ile %5 arasında olmalı.";
+  }
+
+  if (formData.max_single_position_pct <= 0 || formData.max_single_position_pct > 1) {
+    return "Maksimum pozisyon oranı 0 ile %100 arasında olmalı.";
+  }
+
+  if (formData.max_total_exposure_pct < formData.max_single_position_pct || formData.max_total_exposure_pct > 1) {
+    return "Maksimum maruziyet, tek pozisyon oranından düşük olamaz.";
+  }
+
+  if (!Number.isInteger(formData.max_open_positions) || formData.max_open_positions < 1 || formData.max_open_positions > 50) {
+    return "Açık pozisyon sınırı 1 ile 50 arasında tam sayı olmalı.";
+  }
+
+  if (formData.daily_loss_limit_pct <= 0 || formData.daily_loss_limit_pct > 0.5) {
+    return "Günlük zarar limiti 0 ile %50 arasında olmalı.";
+  }
+
+  if (formData.max_drawdown_limit_pct <= 0 || formData.max_drawdown_limit_pct > 0.8) {
+    return "Maksimum gerileme 0 ile %80 arasında olmalı.";
+  }
+
+  if (formData.min_risk_reward < 1 || formData.min_risk_reward > 10) {
+    return "Minimum R/R 1 ile 10 arasında olmalı.";
+  }
+
+  if (!Number.isInteger(formData.cooldown_after_losses) || formData.cooldown_after_losses < 0 || formData.cooldown_after_losses > 20) {
+    return "Kayıp sonrası bekleme sınırı 0 ile 20 arasında tam sayı olmalı.";
+  }
+
+  return null;
+}
+
+function RiskPanel({
+  status,
+  onSystemStatusChange
+}: {
+  status: SystemStatus | null;
+  onSystemStatusChange: (value: SystemStatus) => void;
+}) {
   const limits = status?.risk_limits;
   const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState<any>({});
+  const [formData, setFormData] = useState<EditableRiskLimits>(() => createRiskLimitFormData(limits));
   const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (limits && !isEditing) {
-      setFormData(limits);
-    }
-  }, [limits, isEditing]);
+  const handleChange = (key: keyof EditableRiskLimits, value: string) => {
+    const parsedValue = key === "max_open_positions" || key === "cooldown_after_losses"
+      ? Number.parseInt(value, 10)
+      : Number.parseFloat(value);
 
-  const handleChange = (key: string, value: string) => {
-    setFormData((prev: any) => ({ ...prev, [key]: parseFloat(value) || 0 }));
+    setFormError(null);
+    setFormData((prev) => ({ ...prev, [key]: Number.isNaN(parsedValue) ? 0 : parsedValue }));
+  };
+
+  const handleStartEditing = () => {
+    setFormData(createRiskLimitFormData(limits));
+    setFormError(null);
+    setIsEditing(true);
+  };
+
+  const handleCancel = () => {
+    setFormData(createRiskLimitFormData(limits));
+    setFormError(null);
+    setIsEditing(false);
   };
 
   const handleSave = async () => {
+    const validationError = validateRiskLimitForm(formData);
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+
     try {
       setIsSaving(true);
-      await updateRiskLimits(formData);
+      setFormError(null);
+      const nextStatus = await updateRiskLimits(formData);
+      onSystemStatusChange(nextStatus);
+      setFormData(createRiskLimitFormData(nextStatus.risk_limits));
       setIsEditing(false);
-    } catch (err) {
-      console.error(err);
+    } catch (requestError) {
+      setFormError(requestError instanceof Error ? requestError.message : "Risk limitleri kaydedilemedi.");
     } finally {
       setIsSaving(false);
     }
@@ -1348,10 +1668,10 @@ function RiskPanel({ status }: { status: SystemStatus | null }) {
           <p className="text-xs text-textMuted">Deterministik güvenlik sınırları</p>
         </div>
         {!isEditing ? (
-          <Button variant="secondary" className="h-8 text-xs" onClick={() => setIsEditing(true)}>Düzenle</Button>
+          <Button variant="secondary" className="h-8 text-xs" onClick={handleStartEditing}>Düzenle</Button>
         ) : (
           <div className="flex gap-2">
-            <Button variant="secondary" className="h-8 text-xs" onClick={() => setIsEditing(false)} disabled={isSaving}>İptal</Button>
+            <Button variant="secondary" className="h-8 text-xs" onClick={handleCancel} disabled={isSaving}>İptal</Button>
             <Button variant="primary" className="h-8 text-xs" onClick={() => void handleSave()} disabled={isSaving}>
               {isSaving ? "Kaydediliyor..." : "Kaydet"}
             </Button>
@@ -1368,33 +1688,47 @@ function RiskPanel({ status }: { status: SystemStatus | null }) {
             <StatusLine label="Günlük zarar limiti" value={formatPercent(limits?.daily_loss_limit_pct)} />
             <StatusLine label="Maks. gerileme" value={formatPercent(limits?.max_drawdown_limit_pct)} />
             <StatusLine label="Minimum R/R" value={limits ? String(limits.min_risk_reward) : "-"} />
+            <StatusLine label="Kayıp sonrası bekleme" value={limits ? String(limits.cooldown_after_losses) : "-"} />
             <StatusLine label="Zarar durdur" value={limits?.stop_loss_required ? "Zorunlu" : "-"} />
           </>
         ) : (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            {formError ? (
+              <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-rose-100 md:col-span-2">
+                {formError}
+              </div>
+            ) : null}
             <div>
               <label className="mb-1 block text-xs text-textMuted">İşlem başına risk (örn: 0.01)</label>
-              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.risk_per_trade ?? ""} onChange={(e) => handleChange("risk_per_trade", e.target.value)} />
+              <input type="number" min="0.001" max="0.05" step="0.001" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.risk_per_trade} onChange={(e) => handleChange("risk_per_trade", e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-textMuted">Maks. pozisyon (örn: 0.05)</label>
-              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_single_position_pct ?? ""} onChange={(e) => handleChange("max_single_position_pct", e.target.value)} />
+              <input type="number" min="0.01" max="1" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_single_position_pct} onChange={(e) => handleChange("max_single_position_pct", e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-textMuted">Maks. maruziyet (örn: 0.2)</label>
-              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_total_exposure_pct ?? ""} onChange={(e) => handleChange("max_total_exposure_pct", e.target.value)} />
+              <input type="number" min="0.01" max="1" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_total_exposure_pct} onChange={(e) => handleChange("max_total_exposure_pct", e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-textMuted">Açık pozisyon sınırı</label>
-              <input type="number" step="1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_open_positions ?? ""} onChange={(e) => handleChange("max_open_positions", e.target.value)} />
+              <input type="number" min="1" max="50" step="1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_open_positions} onChange={(e) => handleChange("max_open_positions", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Günlük zarar limiti (örn: 0.02)</label>
+              <input type="number" min="0.001" max="0.5" step="0.001" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.daily_loss_limit_pct} onChange={(e) => handleChange("daily_loss_limit_pct", e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-textMuted">Maks. gerileme (örn: 0.1)</label>
-              <input type="number" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_drawdown_limit_pct ?? ""} onChange={(e) => handleChange("max_drawdown_limit_pct", e.target.value)} />
+              <input type="number" min="0.001" max="0.8" step="0.001" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_drawdown_limit_pct} onChange={(e) => handleChange("max_drawdown_limit_pct", e.target.value)} />
             </div>
             <div>
               <label className="mb-1 block text-xs text-textMuted">Minimum R/R (örn: 1.5)</label>
-              <input type="number" step="0.1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.min_risk_reward ?? ""} onChange={(e) => handleChange("min_risk_reward", e.target.value)} />
+              <input type="number" min="1" max="10" step="0.1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.min_risk_reward} onChange={(e) => handleChange("min_risk_reward", e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-textMuted">Kayıp sonrası bekleme</label>
+              <input type="number" min="0" max="20" step="1" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.cooldown_after_losses} onChange={(e) => handleChange("cooldown_after_losses", e.target.value)} />
             </div>
           </div>
         )}
@@ -1403,35 +1737,58 @@ function RiskPanel({ status }: { status: SystemStatus | null }) {
   );
 }
 
-function StrategiesTable() {
+function StrategiesTable({
+  validation,
+  loading,
+  error
+}: {
+  validation: ActivationValidationSummary | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const rows = validation?.rows ?? [];
+  const completed = rows.filter((row) => row.passed).length;
+  const phaseLabel = validation?.phase === "PHASE_1" ? "AŞAMA 1" : validation?.phase ?? "AŞAMA 1";
   return (
     <section className="rounded-md border border-line bg-panel">
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div>
-          <h2 className="text-sm font-black uppercase tracking-normal">Stratejiler</h2>
-          <p className="text-xs text-textMuted">Doğrulama tamamlanmadan paper bot etkinleştirilemez</p>
+          <h2 className="text-sm font-black uppercase tracking-normal">Aktivasyon Doğrulaması</h2>
+          <p className="text-xs text-textMuted">
+            {loading ? "Paper bot kontrol listesi doğrulanıyor" : error ? error : `${completed}/${rows.length} kontrol tamamlandı`}
+          </p>
         </div>
-        <Badge tone="neutral">AŞAMA 1</Badge>
+        <Badge tone={validation?.ready ? "paper" : "neutral"}>{phaseLabel}</Badge>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] text-left text-sm">
           <thead className="text-xs uppercase text-textMuted">
             <tr className="border-b border-line">
-              <th className="px-4 py-3 font-bold">Strateji</th>
+              <th className="px-4 py-3 font-bold">Kontrol</th>
               <th className="px-4 py-3 font-bold">Durum</th>
               <th className="px-4 py-3 font-bold">Ana Rejim</th>
               <th className="px-4 py-3 font-bold">Aktivasyon</th>
             </tr>
           </thead>
           <tbody>
-            {strategyRows.map(([name, state, regime]) => (
-              <tr key={name} className="border-b border-line/70 last:border-0">
-                <td className="px-4 py-3 font-semibold">{name}</td>
-                <td className="px-4 py-3 text-textMuted">{state}</td>
-                <td className="px-4 py-3 text-textMuted">{regime}</td>
-                <td className="px-4 py-3"><Badge tone="neutral">DOĞRULAMA GEREKLİ</Badge></td>
+            {rows.length ? rows.map((row) => (
+              <tr key={row.key} className="border-b border-line/70 last:border-0">
+                <td className="px-4 py-3 font-semibold">
+                  <div>{row.name}</div>
+                  <div className="mt-1 text-xs font-normal text-textMuted">Mevcut: {row.actual}</div>
+                  <div className="text-xs font-normal text-textMuted">Gerekli: {row.required}</div>
+                </td>
+                <td className="px-4 py-3 text-textMuted">{row.status}</td>
+                <td className="px-4 py-3 text-textMuted">{row.market_regime}</td>
+                <td className="px-4 py-3"><Badge tone={row.passed ? "paper" : "warning"}>{row.activation}</Badge></td>
               </tr>
-            ))}
+            )) : (
+              <tr>
+                <td className="px-4 py-6 text-textMuted" colSpan={4}>
+                  {loading ? "Doğrulama yükleniyor..." : "Doğrulama verisi yok."}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1600,12 +1957,14 @@ function MarketListTable({
   onQuoteAssetChange: (value: string) => void;
   onSearchChange: (value: string) => void;
   onRefresh: () => Promise<void>;
-  onSelectSymbol: (symbol: string) => void;
+  onSelectSymbol: (symbol: string, exchange?: string) => void;
 }) {
   const normalizedSearch = search.toUpperCase().trim();
   const filtered = tickers.filter((ticker) =>
-    normalizedSearch ? ticker.symbol.includes(normalizedSearch) : true
-  ).slice(0, 50);
+    normalizedSearch
+      ? `${ticker.exchange} ${ticker.symbol}`.toUpperCase().includes(normalizedSearch)
+      : true
+  ).slice(0, 100);
 
   return (
     <section className="rounded-md border border-line bg-panel">
@@ -1640,10 +1999,11 @@ function MarketListTable({
         <EmptyState title="Eşleşen sembol bulunamadı" detail={`"${search}" araması sonuç üretmedi.`} className="min-h-48" />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] text-left text-sm">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="text-xs uppercase text-textMuted">
               <tr className="border-b border-line">
                 <th className="px-4 py-3 font-bold">Sembol</th>
+                <th className="px-4 py-3 font-bold">Borsa</th>
                 <th className="px-4 py-3 font-bold text-right">Son Fiyat</th>
                 <th className="px-4 py-3 font-bold text-right">24s Değişim</th>
                 <th className="px-4 py-3 font-bold text-right">Yüksek</th>
@@ -1657,8 +2017,9 @@ function MarketListTable({
               {filtered.map((ticker) => {
                 const positive = ticker.price_change_percent >= 0;
                 return (
-                  <tr key={ticker.symbol} className="border-b border-line/70 last:border-0 hover:bg-panelMuted/50 transition-colors">
+                  <tr key={`${ticker.exchange}-${ticker.symbol}`} className="border-b border-line/70 last:border-0 hover:bg-panelMuted/50 transition-colors">
                     <td className="px-4 py-3 font-semibold">{ticker.symbol}</td>
+                    <td className="px-4 py-3"><Badge tone="neutral">{formatExchange(ticker.exchange)}</Badge></td>
                     <td className="px-4 py-3 text-right">{formatPrice(ticker.last_price)}</td>
                     <td className={`px-4 py-3 text-right font-semibold ${positive ? "text-teal-100" : "text-rose-100"}`}>
                       {positive ? "+" : ""}{ticker.price_change_percent.toFixed(2)}%
@@ -1670,7 +2031,7 @@ function MarketListTable({
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
-                        onClick={() => onSelectSymbol(ticker.symbol)}
+                        onClick={() => onSelectSymbol(ticker.symbol, ticker.exchange)}
                         className="rounded-md border border-accent/35 bg-accent/12 px-2 py-1 text-xs font-bold text-teal-100 transition hover:bg-accent/25"
                       >
                         Seç
@@ -1739,8 +2100,33 @@ function formatMoney(value: number): string {
   }).format(value);
 }
 
+function formatSignedMoney(value: number): string {
+  return new Intl.NumberFormat("tr-TR", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+    signDisplay: "always"
+  }).format(value);
+}
+
 function formatCompact(value: number): string {
   return new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 2 }).format(value);
+}
+
+function formatMarketSource(source: string): string {
+  if (source.startsWith("offline_paper")) {
+    return "paper data";
+  }
+
+  return "public market data";
+}
+
+function formatExchange(exchange?: string | null): string {
+  if (!exchange) {
+    return "-";
+  }
+
+  return exchangeLabels[exchange] ?? exchange.toUpperCase();
 }
 
 function formatTime(value: string | undefined): string {

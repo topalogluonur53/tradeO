@@ -19,10 +19,12 @@ class CandleSeries(BaseModel):
     symbol: str
     interval: str
     source: str
+    exchange: str = "binance"
     candles: list[Candle]
 
 
 class MarketSymbol(BaseModel):
+    exchange: str = "binance"
     symbol: str
     base_asset: str
     quote_asset: str
@@ -31,6 +33,7 @@ class MarketSymbol(BaseModel):
 
 
 class MarketTicker(BaseModel):
+    exchange: str = "binance"
     symbol: str
     price_change: float
     price_change_percent: float

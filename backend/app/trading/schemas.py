@@ -19,6 +19,14 @@ class SignalSide(StrEnum):
     HOLD = "HOLD"
 
 
+class SignalFilter(BaseModel):
+    key: str
+    label: str
+    passed: bool
+    actual: str
+    required: str
+
+
 class Signal(BaseModel):
     symbol: str = "BTC/USDT"
     side: SignalSide
@@ -30,6 +38,8 @@ class Signal(BaseModel):
     market_regime: MarketRegime
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     explanation: str
+    indicators: dict[str, float] = Field(default_factory=dict)
+    filters: list[SignalFilter] = Field(default_factory=list)
 
 
 class RiskDecision(BaseModel):
