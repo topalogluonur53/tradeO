@@ -1688,12 +1688,17 @@ function RiskPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const handleChange = (key: keyof EditableRiskLimits, value: string) => {
+  const handleChange = (key: keyof EditableRiskLimits, value: string | boolean) => {
+    setFormError(null);
+    if (typeof value === "boolean") {
+      setFormData((prev) => ({ ...prev, [key]: value }));
+      return;
+    }
+    
     const parsedValue = key === "max_open_positions" || key === "cooldown_after_losses"
       ? Number.parseInt(value, 10)
       : Number.parseFloat(value);
 
-    setFormError(null);
     setFormData((prev) => ({ ...prev, [key]: Number.isNaN(parsedValue) ? 0 : parsedValue }));
   };
 
