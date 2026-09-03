@@ -26,7 +26,8 @@ if not errorlevel 1 (
   echo Backend is already running on http://127.0.0.1:8000
 ) else (
   start "NEXUS API" /D "%BACKEND_DIR%" cmd /k ""%PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
-  echo Backend is starting on http://127.0.0.1:8000
+  start "NEXUS WORKER" /D "%BACKEND_DIR%" cmd /k ""%PYTHON%" -m app.worker"
+  echo Backend and Worker are starting...
 )
 
 call :is_port_listening 3000

@@ -37,7 +37,19 @@ def upgrade() -> None:
         column('username', sa.String),
         column('hashed_password', sa.String),
         column('is_active', sa.Boolean),
-        column('is_admin', sa.Boolean)
+        column('is_admin', sa.Boolean),
+        column('risk_per_trade', sa.Float),
+        column('max_single_position_pct', sa.Float),
+        column('max_total_exposure_pct', sa.Float),
+        column('max_open_positions', sa.Integer),
+        column('daily_loss_limit_pct', sa.Float),
+        column('max_drawdown_limit_pct', sa.Float),
+        column('min_risk_reward', sa.Float),
+        column('cooldown_after_losses', sa.Integer),
+        column('is_automation_enabled', sa.Boolean),
+        column('trading_mode', sa.String),
+        column('trading_halted', sa.Boolean),
+        column('halt_reason', sa.String)
     )
     
     # Check if 'onur' already exists
@@ -48,7 +60,19 @@ def upgrade() -> None:
             username='onur',
             hashed_password=hashed,
             is_active=True,
-            is_admin=True
+            is_admin=True,
+            risk_per_trade=0.005,
+            max_single_position_pct=0.10,
+            max_total_exposure_pct=0.30,
+            max_open_positions=3,
+            daily_loss_limit_pct=0.02,
+            max_drawdown_limit_pct=0.08,
+            min_risk_reward=1.5,
+            cooldown_after_losses=3,
+            is_automation_enabled=False,
+            trading_mode='paper',
+            trading_halted=False,
+            halt_reason='PAPER_MODE_READY'
         ))
     session.commit()
 
