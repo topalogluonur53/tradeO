@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: nexus_ai_trader
       POSTGRES_USER: nexus
@@ -15,6 +16,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -25,13 +27,35 @@ services:
       retries: 5
 
   backend:
-    image: tradeo-backend:latest
-    build:
-      context: ./backend
-    env_file:
-      - .env.example
+    image: ghcr.io/topalogluonur53/tradeo-backend:latest
+    restart: unless-stopped
     ports:
       - "8000:8000"
+    environment:
+      PROJECT_NAME: NEXUS AI TRADER
+      ENVIRONMENT: development
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql+psycopg://nexus:nexus_password@postgres:5432/nexus_ai_trader
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      TRADING_MODE: paper
+      KILL_SWITCH_ENABLED: "false"
+      MARKET_DATA_BASE_URL: https://data-api.binance.vision
+      MARKET_DATA_TIMEOUT_SECONDS: "10"
+      PAPER_INITIAL_EQUITY: "10000"
+      PAPER_TRADE_INTERVAL_SECONDS: "30"
+      PAPER_DEFAULT_SYMBOL: BTCUSDT
+      PAPER_DEFAULT_INTERVAL: 1h
+      RISK_PER_TRADE: "0.005"
+      MAX_SINGLE_POSITION_PCT: "0.10"
+      MAX_TOTAL_EXPOSURE_PCT: "0.30"
+      MAX_OPEN_POSITIONS: "3"
+      DAILY_LOSS_LIMIT_PCT: "0.02"
+      MAX_DRAWDOWN_LIMIT_PCT: "0.08"
+      MIN_RISK_REWARD: "1.5"
+      COOLDOWN_AFTER_LOSSES: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,11 +64,32 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   worker:
-    image: tradeo-worker:latest
-    build:
-      context: ./backend
-    env_file:
-      - .env.example
+    image: ghcr.io/topalogluonur53/tradeo-backend:latest
+    restart: unless-stopped
+    environment:
+      PROJECT_NAME: NEXUS AI TRADER
+      ENVIRONMENT: development
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql+psycopg://nexus:nexus_password@postgres:5432/nexus_ai_trader
+      REDIS_URL: redis://redis:6379/0
+      TRADING_MODE: paper
+      KILL_SWITCH_ENABLED: "false"
+      MARKET_DATA_BASE_URL: https://data-api.binance.vision
+      MARKET_DATA_TIMEOUT_SECONDS: "10"
+      PAPER_INITIAL_EQUITY: "10000"
+      PAPER_TRADE_INTERVAL_SECONDS: "30"
+      PAPER_DEFAULT_SYMBOL: BTCUSDT
+      PAPER_DEFAULT_INTERVAL: 1h
+      RISK_PER_TRADE: "0.005"
+      MAX_SINGLE_POSITION_PCT: "0.10"
+      MAX_TOTAL_EXPOSURE_PCT: "0.30"
+      MAX_OPEN_POSITIONS: "3"
+      DAILY_LOSS_LIMIT_PCT: "0.02"
+      MAX_DRAWDOWN_LIMIT_PCT: "0.08"
+      MIN_RISK_REWARD: "1.5"
+      COOLDOWN_AFTER_LOSSES: "3"
     depends_on:
       backend:
         condition: service_started
@@ -53,9 +98,8 @@ services:
     command: ["python", "-m", "app.worker"]
 
   frontend:
-    image: tradeo-frontend:latest
-    build:
-      context: ./frontend
+    image: ghcr.io/topalogluonur53/tradeo-frontend:latest
+    restart: unless-stopped
     environment:
       API_URL: http://backend:8000/api
       NEXT_PUBLIC_API_BASE_URL: ""
