@@ -5,6 +5,7 @@ import {
   ColorType,
   createChart,
   type CandlestickData,
+  type LineData,
   type IChartApi,
   type UTCTimestamp
 } from "lightweight-charts";
@@ -66,6 +67,50 @@ export function TradingChart({ candles, loading = false, error }: TradingChartPr
     }));
 
     series.setData(chartData);
+
+    // Calculate Bollinger Bands
+    const period = 20;
+    const upperData: LineData[] = [];
+    const lowerData: LineData[] = [];
+    const middleData: LineData[] = [];
+
+    for (let i = 0; i < chartData.length; i++) {
+      if (i < period - 1) continue;
+      
+      const slice = chartData.slice(i - period + 1, i + 1);
+      const mean = slice.reduce((acc, val) => acc + val.close, 0) / period;
+      const variance = slice.reduce((acc, val) => acc + Math.pow(val.close - mean, 2), 0) / period;
+      const stdDev = Math.sqrt(variance);
+      
+      const time = chartData[i].time;
+      middleData.push({ time, value: mean });
+      upperData.push({ time, value: mean + 2 * stdDev });
+      lowerData.push({ time, value: mean - 2 * stdDev });
+    }
+
+    const upperSeries = chart.addLineSeries({
+      color: "rgba(59, 130, 246, 0.4)",
+      lineWidth: 1,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+    });
+    const middleSeries = chart.addLineSeries({
+      color: "rgba(234, 179, 8, 0.6)",
+      lineWidth: 1,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+    });
+    const lowerSeries = chart.addLineSeries({
+      color: "rgba(59, 130, 246, 0.4)",
+      lineWidth: 1,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+    });
+
+    upperSeries.setData(upperData);
+    middleSeries.setData(middleData);
+    lowerSeries.setData(lowerData);
+
     chart.timeScale().fitContent();
 
     return () => {

@@ -1,6 +1,20 @@
 from app.market_data.schemas import Candle
+import math
 
+def sma(values: list[float], period: int) -> float:
+    if not values:
+        return 0.0
+    if len(values) < period:
+        return sum(values) / len(values)
+    return sum(values[-period:]) / period
 
+def standard_deviation(values: list[float], period: int) -> float:
+    if len(values) < period:
+        return 0.0
+    slice_vals = values[-period:]
+    mean = sum(slice_vals) / period
+    variance = sum((x - mean) ** 2 for x in slice_vals) / period
+    return math.sqrt(variance)
 def ema(values: list[float], period: int) -> float:
     if not values:
         return 0.0
@@ -73,6 +87,17 @@ def calculate_indicator_snapshot(candles: list[Candle]) -> dict[str, float]:
     latest_close = closes[-1] if closes else 0.0
     ema_slope = 0.0 if latest_close <= 0 else (ema_fast - ema_slow) / latest_close
 
+    bb_middle = sma(closes, 20)
+    bb_std = standard_deviation(closes, 20)
+    bb_upper = bb_middle + (2.0 * bb_std)
+    bb_lower = bb_middle - (2.0 * bb_std)
+    
+    # Calculate squeeze (bandwidth)
+    bb_bandwidth = (bb_upper - bb_lower) / bb_middle if bb_middle > 0 else 0.0
+    
+    # Calculate where the price is relative to the bands (0 = lower, 1 = upper)
+    bb_percent = (latest_close - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
+
     return {
         "ema_fast": ema_fast,
         "ema_slow": ema_slow,
@@ -80,4 +105,8 @@ def calculate_indicator_snapshot(candles: list[Candle]) -> dict[str, float]:
         "rsi": rsi(closes),
         "atr_pct": atr_pct(candles),
         "volume_score": volume_score(candles),
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
+        "bb_bandwidth": bb_bandwidth,
+        "bb_percent": bb_percent,
     }

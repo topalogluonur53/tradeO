@@ -13,7 +13,7 @@ from app.trading.order_validator import OrderValidationContext, OrderValidator
 from app.trading.paper_broker import PaperBroker, TradingCycleResult, create_default_broker
 from app.trading.risk_engine import RiskEngine
 from app.trading.schemas import RiskDecision, Signal, SignalSide
-from app.trading.strategy_engine import EmaRsiStrategy
+from app.trading.strategy_engine import NexusAIStrategy
 
 
 SCAN_CANDIDATE_LIMIT = 8
@@ -78,7 +78,7 @@ class PaperTradingService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.broker = create_default_broker(settings)
-        self.strategy = EmaRsiStrategy()
+        self.strategy = NexusAIStrategy()
         self.risk_engine = RiskEngine(settings)
         self.validator = OrderValidator()
         self.symbol = settings.paper_default_symbol

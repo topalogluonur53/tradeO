@@ -4,8 +4,8 @@ from app.trading.regime import detect_market_regime
 from app.trading.schemas import MarketRegime, Signal, SignalFilter, SignalSide
 
 
-class EmaRsiStrategy:
-    name = "EMA_RSI_SPOT_LONG"
+class NexusAIStrategy:
+    name = "NEXUS_AI_TREND_SQUEEZE"
 
     def generate_signal(self, symbol: str, candles: list[Candle]) -> Signal:
         latest = candles[-1]
@@ -29,35 +29,42 @@ class EmaRsiStrategy:
             ),
             SignalFilter(
                 key="ema_trend",
-                label="EMA trend",
+                label="Geniş Trend",
                 passed=indicators["ema_fast"] > indicators["ema_slow"],
                 actual=f"{indicators['ema_fast']:.6g} / {indicators['ema_slow']:.6g}",
                 required="EMA fast > EMA slow",
             ),
             SignalFilter(
+                key="bb_squeeze",
+                label="Volatilite Sıkışması",
+                passed=indicators["bb_bandwidth"] < 0.05,
+                actual=f"{indicators['bb_bandwidth'] * 100:.2f}%",
+                required="< 5.0% (Sıkışma)",
+            ),
+            SignalFilter(
                 key="rsi",
-                label="RSI aralığı",
-                passed=45 <= indicators["rsi"] <= 72,
+                label="RSI Soğuması",
+                passed=40 <= indicators["rsi"] <= 65,
                 actual=f"{indicators['rsi']:.2f}",
-                required="45 - 72",
+                required="40 - 65",
             ),
             SignalFilter(
                 key="volume",
-                label="Hacim skoru",
-                passed=indicators["volume_score"] >= 0.35,
+                label="Hacim Teyidi",
+                passed=indicators["volume_score"] >= 0.8,
                 actual=f"{indicators['volume_score']:.2f}",
-                required=">= 0.35",
+                required=">= 0.8x ortalama",
             ),
         ]
         can_buy = all(item.passed for item in filters)
 
-        stop_distance = max(latest.close * 0.01, latest.close * indicators["atr_pct"] * 1.4)
-        take_profit_distance = stop_distance * 2.0
+        stop_distance = max(latest.close * 0.01, latest.close * indicators["atr_pct"] * 1.5)
+        take_profit_distance = stop_distance * 2.5
 
         if can_buy:
             side = SignalSide.BUY
             explanation = (
-                "Paper giriş uygun: hızlı EMA yavaş EMA üzerinde, RSI aşırı bölgede değil ve hacim kabul edilebilir."
+                "Nexus Yapay Zeka: Fiyat Bollinger bantlarında sıkışma sonrası güçlü hacimle kırılıma hazır. EMA yükseliş trendinde."
             )
         else:
             side = SignalSide.HOLD
@@ -80,9 +87,13 @@ class EmaRsiStrategy:
 
 
 def _confidence(indicators: dict[str, float], regime: MarketRegime) -> float:
-    trend_score = min(0.35, abs(indicators["ema_slope"]) * 12)
-    rsi_distance = abs(58 - indicators["rsi"])
-    rsi_score = max(0.0, 0.25 - (rsi_distance / 100))
-    volume_score = min(0.25, indicators["volume_score"] * 0.12)
+    trend_score = min(0.35, abs(indicators["ema_slope"]) * 15)
+    rsi_distance = abs(55 - indicators["rsi"])
+    rsi_score = max(0.0, 0.20 - (rsi_distance / 120))
+    
+    # High volume breaking out of a tight squeeze increases confidence massively
+    squeeze_bonus = 0.20 if indicators.get("bb_bandwidth", 1.0) < 0.04 else 0.0
+    volume_score = min(0.20, indicators["volume_score"] * 0.1)
+    
     regime_score = 0.15 if regime is MarketRegime.TRENDING_UP else 0.05
-    return min(0.95, max(0.05, trend_score + rsi_score + volume_score + regime_score))
+    return min(0.95, max(0.05, trend_score + rsi_score + volume_score + squeeze_bonus + regime_score))

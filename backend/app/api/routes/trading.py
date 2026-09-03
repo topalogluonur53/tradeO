@@ -15,7 +15,7 @@ from app.trading.paper_broker import PaperPortfolioState, TradingCycleResult, Pa
 from app.trading.paper_trading import ActivationValidationSummary, AutomationState, PaperTradingService
 from app.trading.multi_tenant import execute_trading_step_for_user, get_or_create_automation_state, get_or_create_portfolio
 from app.trading.schemas import SignalSide, Signal, RiskDecision
-from app.trading.strategy_engine import EmaRsiStrategy
+from app.trading.strategy_engine import NexusAIStrategy
 
 router = APIRouter(prefix="/trading", tags=["trading"])
 
@@ -222,7 +222,7 @@ async def run_backtest(
     exchange: str = Query(default="binance", min_length=2, max_length=12),
 ) -> BacktestSummary:
     settings = get_settings()
-    strategy = EmaRsiStrategy()
+    strategy = NexusAIStrategy()
     selected_exchange = normalize_exchange(exchange)
     if selected_exchange == "all":
         selected_exchange = "binance"
