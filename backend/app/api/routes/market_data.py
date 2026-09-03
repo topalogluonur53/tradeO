@@ -1,5 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.routes.auth import get_current_user
+from app.models.user import User
 from app.core.config import Settings, get_settings
 from app.market_data.binance import BinanceMarketDataClient, MarketDataError, normalize_exchange
 from app.market_data.offline import build_offline_candles, build_offline_symbols, build_offline_tickers
@@ -15,6 +17,7 @@ async def get_candles(
     interval: str = Query(default="1h", min_length=2, max_length=3),
     limit: int = Query(default=200, ge=1, le=1000),
     exchange: str = Query(default="binance", min_length=2, max_length=12),
+    current_user: User = Depends(get_current_user)
 ) -> CandleSeries:
     settings = get_settings()
     selected_exchange = normalize_exchange(exchange)
@@ -49,6 +52,7 @@ async def get_candles(
 async def get_symbols(
     quote_asset: str | None = Query(default=None, min_length=2, max_length=10),
     exchange: str = Query(default="all", min_length=2, max_length=12),
+    current_user: User = Depends(get_current_user)
 ) -> list[MarketSymbol]:
     settings = get_settings()
     selected_exchange = normalize_exchange(exchange)
@@ -69,6 +73,7 @@ async def get_symbols(
 async def get_tickers(
     quote_asset: str | None = Query(default="USDT", min_length=2, max_length=10),
     exchange: str = Query(default="all", min_length=2, max_length=12),
+    current_user: User = Depends(get_current_user)
 ) -> MarketOverview:
     settings = get_settings()
     selected_exchange = normalize_exchange(exchange)
