@@ -10,6 +10,11 @@ from app.trading.risk_engine import PortfolioSnapshot, RiskEngine
 from app.trading.schemas import RiskDecision, Signal, SignalSide
 
 
+def normalize_symbol(symbol: str) -> str:
+    """Normalize symbol for comparison: ETH-USDT -> ETHUSDT"""
+    return symbol.replace("-", "").upper()
+
+
 class PaperPosition(BaseModel):
     id: str
     symbol: str
@@ -120,7 +125,7 @@ class PaperBroker:
         with self._lock:
             remaining: list[PaperPosition] = []
             for position in self._open_positions:
-                if position.symbol != candle.symbol:
+                if normalize_symbol(position.symbol) != normalize_symbol(candle.symbol):
                     remaining.append(position)
                     continue
 
@@ -197,7 +202,8 @@ class PaperBroker:
 
     def has_open_position(self, symbol: str) -> bool:
         with self._lock:
-            return any(position.symbol == symbol for position in self._open_positions)
+            normalized = normalize_symbol(symbol)
+            return any(normalize_symbol(position.symbol) == normalized for position in self._open_positions)
 
     def _position_with_mark(
         self,
