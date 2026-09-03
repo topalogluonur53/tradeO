@@ -215,19 +215,51 @@ export type BacktestSummary = {
 // HTTP client
 // ---------------------------------------------------------------------------
 
+export function getToken(): string | null {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("nexus_token");
+  }
+  return null;
+}
+
+export function setToken(token: string) {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("nexus_token", token);
+  }
+}
+
+export function clearToken() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("nexus_token");
+  }
+}
+
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    ...init?.headers as Record<string, string>
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      ...init?.headers
-    }
+    headers
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearToken();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+    }
     throw new Error(await readErrorMessage(response));
   }
 
@@ -270,6 +302,30 @@ function isValidationIssue(payload: unknown): payload is { msg: string } {
     "msg" in payload &&
     typeof (payload as { msg: unknown }).msg === "string"
   );
+}
+
+// ---------------------------------------------------------------------------
+// Auth endpoints
+// ---------------------------------------------------------------------------
+
+export type AuthResponse = {
+  access_token: string;
+  token_type: string;
+};
+
+export function login(formData: FormData): Promise<AuthResponse> {
+  return request<AuthResponse>("/api/auth/login", {
+    method: "POST",
+    body: formData
+  });
+}
+
+export function register(email: string, password: string): Promise<any> {
+  return request("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
 }
 
 // ---------------------------------------------------------------------------

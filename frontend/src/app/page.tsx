@@ -58,8 +58,11 @@ import {
   type RiskDecision,
   type RiskLimits,
   type SystemStatus,
-  type TradingSignal
+  type TradingSignal,
+  getToken,
+  clearToken
 } from "@/lib/api";
+import { useRouter } from "next/navigation";
 
 type NavigationId =
   | "dashboard"
@@ -120,6 +123,19 @@ const orderPolicies = [
 ] as const;
 
 export default function Home() {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!getToken()) {
+      router.push("/login");
+    }
+  }, [router]);
+
+  const handleLogout = () => {
+    clearToken();
+    router.push("/login");
+  };
+
   const [activeSection, setActiveSection] = useState<NavigationId>("dashboard");
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [status, setStatus] = useState<SystemStatus | null>(null);
