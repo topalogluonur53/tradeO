@@ -55,7 +55,7 @@ def get_current_user(
     db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)
 ) -> User:
     settings = get_settings()
-    secret = getattr(settings, "jwt_secret", "a_very_secret_key_for_development_purposes")
+    secret = settings.jwt_secret
     
     
     try:

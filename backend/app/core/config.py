@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     log_level: str = "INFO"
+    jwt_secret: str = "a_very_secret_key_for_development_purposes"
     database_url: str = "postgresql+psycopg://nexus:nexus_password@localhost:5432/nexus_ai_trader"
     redis_url: str = "redis://localhost:6379/0"
     cors_origins: list[str] = Field(
