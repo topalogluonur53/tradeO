@@ -180,7 +180,6 @@ class BinanceMarketDataClient:
             and row.get("status") == "TRADING"
             and row.get("isSpotTradingAllowed", False)
         ]
-        global _GLOBAL_SYMBOLS_CACHE
         _GLOBAL_SYMBOLS_CACHE = sorted(symbols, key=lambda item: item.symbol)
         return _GLOBAL_SYMBOLS_CACHE
 
