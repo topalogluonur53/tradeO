@@ -1521,8 +1521,9 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
       <table className="w-full table-fixed text-left text-xs xl:text-sm">
         <thead className="text-xs uppercase text-textMuted">
           <tr className="border-b border-line">
-            <th className="w-[15%] px-3 py-3 font-bold">Sembol</th>
-            <th className="w-[14%] px-3 py-3 font-bold text-right">Miktar</th>
+            <th className="w-[12%] px-3 py-3 font-bold">Açılış</th>
+            <th className="w-[12%] px-3 py-3 font-bold">Sembol</th>
+            <th className="w-[12%] px-3 py-3 font-bold text-right">Miktar</th>
             <th className="w-[12%] px-3 py-3 font-bold text-right">Giriş</th>
             <th className="w-[12%] px-3 py-3 font-bold text-right">Güncel</th>
             <th className="w-[13%] px-3 py-3 font-bold text-right">K/Z</th>
@@ -1540,6 +1541,7 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
 
             return (
               <tr key={position.id} className="border-b border-line/70 last:border-0">
+                <td className="truncate px-3 py-3 text-textMuted text-xs" title={formatFullDateTime(position.opened_at)}>{formatFullDateTime(position.opened_at)}</td>
                 <td className="truncate px-3 py-3 font-semibold" title={position.symbol}>{position.symbol}</td>
                 <td className="truncate px-3 py-3 text-right text-textMuted" title={formatQuantity(position.quantity)}>
                   {formatQuantity(position.quantity)}
@@ -1574,28 +1576,35 @@ function TradesTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left text-sm">
+      <table className="w-full min-w-[900px] text-left text-sm">
         <thead className="text-xs uppercase text-textMuted">
           <tr className="border-b border-line">
-            <th className="px-4 py-3 font-bold">Zaman</th>
-            <th className="px-4 py-3 font-bold">Sembol</th>
+            <th className="px-4 py-3 font-bold">Açılış Zamanı</th>
+            <th className="px-4 py-3 font-bold">Kapanış Zamanı</th>
+            <th className="px-4 py-3 font-bold">Ürün / Adet</th>
             <th className="px-4 py-3 font-bold">Yön</th>
-            <th className="px-4 py-3 font-bold">Giriş</th>
-            <th className="px-4 py-3 font-bold">Çıkış</th>
-            <th className="px-4 py-3 font-bold">PnL</th>
+            <th className="px-4 py-3 font-bold text-right">Giriş Fiyatı</th>
+            <th className="px-4 py-3 font-bold text-right">Çıkış Fiyatı</th>
+            <th className="px-4 py-3 font-bold text-right">PnL</th>
             <th className="px-4 py-3 font-bold">Neden</th>
           </tr>
         </thead>
         <tbody>
           {trades.slice().reverse().map((trade) => (
             <tr key={trade.id} className="border-b border-line/70 last:border-0">
-              <td className="px-4 py-3 text-textMuted">{formatTime(trade.closed_at)}</td>
-              <td className="px-4 py-3 font-semibold">{trade.symbol}</td>
+              <td className="px-4 py-3 text-textMuted text-xs">{formatFullDateTime(trade.opened_at)}</td>
+              <td className="px-4 py-3 text-textMuted text-xs">{formatFullDateTime(trade.closed_at)}</td>
+              <td className="px-4 py-3">
+                <div className="font-semibold">{trade.symbol}</div>
+                <div className="text-xs text-textMuted">{formatQuantity(trade.quantity)} Adet</div>
+              </td>
               <td className="px-4 py-3">{trade.side}</td>
-              <td className="px-4 py-3">{formatPrice(trade.entry_price)}</td>
-              <td className="px-4 py-3">{formatPrice(trade.exit_price)}</td>
-              <td className={`px-4 py-3 font-semibold ${trade.realized_pnl >= 0 ? "text-teal-100" : "text-rose-100"}`}>{formatMoney(trade.realized_pnl)}</td>
-              <td className="px-4 py-3 text-textMuted">{trade.exit_reason}</td>
+              <td className="px-4 py-3 text-right">{formatPrice(trade.entry_price)}</td>
+              <td className="px-4 py-3 text-right">{formatPrice(trade.exit_price)}</td>
+              <td className={`px-4 py-3 text-right font-semibold ${trade.realized_pnl >= 0 ? "text-teal-100" : "text-rose-100"}`}>
+                {formatMoney(trade.realized_pnl)}
+              </td>
+              <td className="px-4 py-3 text-textMuted text-xs">{trade.exit_reason}</td>
             </tr>
           ))}
         </tbody>
@@ -2321,5 +2330,19 @@ function formatDateTime(value: number): string {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatFullDateTime(value: string | number | undefined): string {
+  if (!value) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
   }).format(new Date(value));
 }
