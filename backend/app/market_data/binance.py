@@ -23,6 +23,8 @@ SUPPORTED_INTERVALS = {
 class MarketDataError(RuntimeError):
     """Raised when public market data cannot be loaded."""
 
+_GLOBAL_SYMBOLS_CACHE: list["MarketSymbol"] | None = None
+
 
 def normalize_exchange(exchange: str | None) -> str:
     if not exchange:
@@ -154,8 +156,9 @@ class BinanceMarketDataClient:
         ]
 
     async def _load_symbols(self) -> list[MarketSymbol]:
-        if hasattr(self, "_symbols_cache"):
-            return self._symbols_cache
+        global _GLOBAL_SYMBOLS_CACHE
+        if _GLOBAL_SYMBOLS_CACHE is not None:
+            return _GLOBAL_SYMBOLS_CACHE
 
         try:
             payload = await self._get_json(
@@ -177,8 +180,9 @@ class BinanceMarketDataClient:
             and row.get("status") == "TRADING"
             and row.get("isSpotTradingAllowed", False)
         ]
-        self._symbols_cache = sorted(symbols, key=lambda item: item.symbol)
-        return self._symbols_cache
+        global _GLOBAL_SYMBOLS_CACHE
+        _GLOBAL_SYMBOLS_CACHE = sorted(symbols, key=lambda item: item.symbol)
+        return _GLOBAL_SYMBOLS_CACHE
 
     async def get_24h_tickers(self, quote_asset: str | None = None) -> MarketOverview:
         active_symbols = {symbol.symbol for symbol in await self.get_symbols(quote_asset=quote_asset)}
