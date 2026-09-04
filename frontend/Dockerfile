@@ -9,6 +9,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+ARG API_URL=http://backend:8000/api
+ENV API_URL=$API_URL
 RUN npm run build
 EXPOSE 3000
 CMD ["npm", "start"]
