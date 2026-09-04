@@ -150,27 +150,49 @@ class PaperBroker:
                     remaining.append(position)
                     continue
 
-                realized_pnl = (exit_price - position.entry_price) * position.quantity
-                self._cash += position.quantity * exit_price
-                self._consecutive_losses = self._consecutive_losses + 1 if realized_pnl < 0 else 0
-                trade = PaperTrade(
-                    id=str(uuid4()),
-                    symbol=position.symbol,
-                    side="LONG",
-                    quantity=position.quantity,
-                    entry_price=position.entry_price,
-                    exit_price=exit_price,
-                    realized_pnl=realized_pnl,
-                    opened_at=position.opened_at,
-                    closed_at=datetime.now(UTC),
-                    exit_reason=exit_reason,
-                    strategy=position.strategy,
-                )
-                self._closed_trades.append(trade)
+                trade = self._create_trade_from_position(position, exit_price, exit_reason)
                 closed.append(trade)
 
             self._open_positions = remaining
         return closed
+
+    def close_position(self, position_id: str) -> PaperTrade | None:
+        with self._lock:
+            for i, position in enumerate(self._open_positions):
+                if position.id == position_id:
+                    trade = self._create_trade_from_position(position, exit_price=position.current_price, exit_reason="MANUAL_CLOSE")
+                    self._open_positions.pop(i)
+                    return trade
+        return None
+
+    def close_all_positions(self) -> list[PaperTrade]:
+        with self._lock:
+            closed_trades = []
+            for position in self._open_positions:
+                trade = self._create_trade_from_position(position, exit_price=position.current_price, exit_reason="MANUAL_CLOSE")
+                closed_trades.append(trade)
+            self._open_positions = []
+            return closed_trades
+
+    def _create_trade_from_position(self, position: PaperPosition, exit_price: float, exit_reason: str) -> PaperTrade:
+        realized_pnl = (exit_price - position.entry_price) * position.quantity
+        self._cash += position.quantity * exit_price
+        self._consecutive_losses = self._consecutive_losses + 1 if realized_pnl < 0 else 0
+        trade = PaperTrade(
+            id=str(uuid4()),
+            symbol=position.symbol,
+            side="LONG",
+            quantity=position.quantity,
+            entry_price=position.entry_price,
+            exit_price=exit_price,
+            realized_pnl=realized_pnl,
+            opened_at=position.opened_at,
+            closed_at=datetime.now(UTC),
+            exit_reason=exit_reason,
+            strategy=position.strategy,
+        )
+        self._closed_trades.append(trade)
+        return trade
 
     def try_open_position(
         self,

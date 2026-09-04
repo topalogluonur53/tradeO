@@ -62,6 +62,8 @@ import {
   getToken,
   clearToken,
   getCurrentUser,
+  closePosition,
+  closeAllPositions,
   type UserResponse
 } from "@/lib/api";
 import { useRouter } from "next/navigation";
@@ -724,7 +726,7 @@ function TerminalSection(props: {
     case "paper-trading":
       return <PaperTradingSection {...props} />;
     case "portfolio":
-      return <PortfolioSection status={props.status} portfolio={props.portfolio} />;
+      return <PortfolioSection status={props.status} portfolio={props.portfolio} onRefreshAll={props.onRefreshAll} />;
     case "orders":
       return <OrdersSection status={props.status} portfolio={props.portfolio} />;
     case "risk":
@@ -1156,7 +1158,8 @@ function PaperTradingSection({
   lastRiskDecision,
   onRunTradingCycle,
   onToggleAutomation,
-  onResetPortfolio
+  onResetPortfolio,
+  onRefreshAll
 }: {
   status: SystemStatus | null;
   portfolio: PaperPortfolio | null;
@@ -1169,6 +1172,7 @@ function PaperTradingSection({
   onRunTradingCycle: () => Promise<void>;
   onToggleAutomation: () => Promise<void>;
   onResetPortfolio: () => Promise<void>;
+  onRefreshAll: () => Promise<void>;
 }) {
   const halted = status?.trading_halted ?? true;
   const running = automation?.running ?? false;
@@ -1192,8 +1196,19 @@ function PaperTradingSection({
       ) : null}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="rounded-md border border-line bg-panel">
-          <div className="border-b border-line px-4 py-3">
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
             <h2 className="text-sm font-black uppercase tracking-normal">Paper Portföy</h2>
+            <div className="flex items-center gap-3">
+              {portfolio && portfolio.open_positions.length > 0 && (
+                <Button variant="danger" onClick={async () => {
+                  if (!confirm("Tüm açık pozisyonları kapatmak istediğinize emin misiniz?")) return;
+                  await closeAllPositions();
+                  await onRefreshAll();
+                }} className="h-7 text-xs px-2">
+                  Tümünü Stop Et
+                </Button>
+              )}
+            </div>
           </div>
           <div className="grid gap-3 p-4 text-sm">
             <StatusLine label="Otomasyon" value={running ? "Çalışıyor" : "Kapalı"} />
@@ -1203,7 +1218,7 @@ function PaperTradingSection({
             <StatusLine label="Paper equity" value={portfolio ? formatMoney(portfolio.equity) : "-"} />
             <StatusLine label="Günlük PnL" value={portfolio ? formatMoney(portfolio.daily_pnl) : "-"} />
           </div>
-          <PositionsTable portfolio={portfolio} />
+          <PositionsTable portfolio={portfolio} onRefreshAll={onRefreshAll} />
         </section>
         <div className="grid gap-5">
           <BotStatus status={status} automation={automation} />
@@ -1284,18 +1299,40 @@ function SignalDecisionPanel({
   );
 }
 
-function PortfolioSection({ status, portfolio }: { status: SystemStatus | null; portfolio: PaperPortfolio | null }) {
+function PortfolioSection({ status, portfolio, onRefreshAll }: { status: SystemStatus | null; portfolio: PaperPortfolio | null; onRefreshAll: () => Promise<void> }) {
+  const [closing, setClosing] = useState(false);
+
+  const handleCloseAll = async () => {
+    if (!confirm("Tüm açık pozisyonları kapatmak istediğinize emin misiniz?")) return;
+    try {
+      setClosing(true);
+      await closeAllPositions();
+      await onRefreshAll();
+    } catch (err) {
+      alert("Pozisyonlar kapatılamadı: " + String(err));
+    } finally {
+      setClosing(false);
+    }
+  };
+
   const limits = status?.risk_limits;
   return (
     <div className="space-y-5">
-      <SectionHeader icon={BriefcaseBusiness} title="Portföy" description="Paper portföy defteri ve maruziyet sınırları" />
+      <div className="flex justify-between items-center">
+        <SectionHeader icon={BriefcaseBusiness} title="Portföy" description="Paper portföy defteri ve maruziyet sınırları" />
+        {portfolio && portfolio.open_positions.length > 0 && (
+          <Button variant="danger" disabled={closing} onClick={handleCloseAll} className="mb-2">
+            Tümünü Stop Et
+          </Button>
+        )}
+      </div>
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="rounded-md border border-line bg-panel">
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
             <h2 className="text-sm font-black uppercase tracking-normal">Pozisyonlar</h2>
             <Badge tone="neutral">{portfolio?.open_positions.length ?? 0} AÇIK</Badge>
           </div>
-          <PositionsTable portfolio={portfolio} />
+          <PositionsTable portfolio={portfolio} onRefreshAll={onRefreshAll} />
         </section>
         <InfoCard icon={Wallet} title="Sermaye Koruması" badge="Aktif" badgeTone="paper">
           <div className="grid gap-3 text-sm">
@@ -1510,7 +1547,22 @@ function CandleTable({ candles }: { candles: MarketCandle[] }) {
   );
 }
 
-function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
+function PositionsTable({ portfolio, onRefreshAll }: { portfolio: PaperPortfolio | null; onRefreshAll?: () => Promise<void> }) {
+  const [closingId, setClosingId] = useState<string | null>(null);
+
+  const handleClosePosition = async (id: string) => {
+    if (!confirm("Bu pozisyonu manuel olarak kapatmak istediğinize emin misiniz?")) return;
+    try {
+      setClosingId(id);
+      await closePosition(id);
+      if (onRefreshAll) await onRefreshAll();
+    } catch (err) {
+      alert("Pozisyon kapatılamadı: " + String(err));
+    } finally {
+      setClosingId(null);
+    }
+  };
+
   const positions = portfolio?.open_positions ?? [];
   if (!positions.length) {
     return <EmptyState title="Açık paper pozisyon yok" detail="Bot sinyal üretip risk onayı aldığında pozisyon burada görünür." className="min-h-56" />;
@@ -1521,15 +1573,16 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
       <table className="w-full table-fixed text-left text-xs xl:text-sm">
         <thead className="text-xs uppercase text-textMuted">
           <tr className="border-b border-line">
-            <th className="w-[12%] px-2 py-2 font-bold">Açılış</th>
-            <th className="w-[11%] px-2 py-2 font-bold">Sembol</th>
-            <th className="w-[13%] px-2 py-2 font-bold text-right">Büyüklük</th>
-            <th className="w-[11%] px-2 py-2 font-bold text-right">Giriş</th>
-            <th className="w-[11%] px-2 py-2 font-bold text-right">Güncel</th>
-            <th className="w-[13%] px-2 py-2 font-bold text-right">K/Z</th>
-            <th className="w-[10%] px-2 py-2 font-bold text-right">Stop</th>
-            <th className="w-[11%] px-2 py-2 font-bold text-right">Hedef</th>
+            <th className="w-[11%] px-2 py-2 font-bold">Açılış</th>
+            <th className="w-[10%] px-2 py-2 font-bold">Sembol</th>
+            <th className="w-[12%] px-2 py-2 font-bold text-right">Büyüklük</th>
+            <th className="w-[10%] px-2 py-2 font-bold text-right">Giriş</th>
+            <th className="w-[10%] px-2 py-2 font-bold text-right">Güncel</th>
+            <th className="w-[12%] px-2 py-2 font-bold text-right">K/Z</th>
+            <th className="w-[9%] px-2 py-2 font-bold text-right">Stop</th>
+            <th className="w-[10%] px-2 py-2 font-bold text-right">Hedef</th>
             <th className="w-[8%] px-2 py-2 font-bold text-right">Str.</th>
+            <th className="w-[8%] px-2 py-2 font-bold text-right">İşlem</th>
           </tr>
         </thead>
         <tbody>
@@ -1540,7 +1593,7 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
             const strategyLabel = position.strategy.replace("_SPOT_LONG", "").replace("EMA_RSI", "EMA");
 
             return (
-              <tr key={position.id} className="border-b border-line/70 last:border-0">
+              <tr key={position.id} className="border-b border-line/70 last:border-0 hover:bg-white/5 transition-colors">
                 <td className="truncate px-2 py-2 text-textMuted text-xs" title={formatFullDateTime(position.opened_at)}>{formatFullDateTime(position.opened_at)}</td>
                 <td className="truncate px-2 py-2 font-semibold" title={position.symbol}>{position.symbol}</td>
                 <td className="truncate px-2 py-2 text-right text-textMuted" title={formatQuantity(position.quantity)}>
@@ -1560,6 +1613,21 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
                   {formatPrice(position.take_profit)}
                 </td>
                 <td className="truncate px-2 py-2 text-right text-textMuted text-[10px]" title={position.strategy}>{strategyLabel}</td>
+                <td className="px-2 py-2 text-right">
+                  <Button
+                    variant="ghost"
+                    className="h-6 w-6 p-0 text-textMuted hover:text-rose-400 hover:bg-rose-400/10"
+                    title="Kapat"
+                    disabled={closingId === position.id}
+                    onClick={() => void handleClosePosition(position.id)}
+                  >
+                    {closingId === position.id ? (
+                       <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : (
+                       <X className="h-4 w-4" />
+                    )}
+                  </Button>
+                </td>
               </tr>
             );
           })}

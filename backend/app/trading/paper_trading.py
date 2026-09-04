@@ -123,6 +123,31 @@ class PaperTradingService:
         series = await self._load_candle_series(selected_symbol, selected_interval, selected_exchange)
         return self._execute_series(series)
 
+    def close_position(self, position_id: str) -> TradingCycleResult:
+        trade = self.broker.close_position(position_id)
+        if trade:
+            self.last_action = "POSITION_CLOSED_MANUALLY"
+            self.last_reason = f"Position {trade.symbol} closed manually by user"
+        else:
+            self.last_action = "CLOSE_FAILED"
+            self.last_reason = f"Position {position_id} not found"
+        return TradingCycleResult(
+            action=self.last_action,
+            reason=self.last_reason,
+            portfolio=self.broker.snapshot(),
+        )
+
+    def close_all_positions(self) -> TradingCycleResult:
+        trades = self.broker.close_all_positions()
+        count = len(trades)
+        self.last_action = "ALL_POSITIONS_CLOSED"
+        self.last_reason = f"{count} open position(s) closed manually by user"
+        return TradingCycleResult(
+            action=self.last_action,
+            reason=self.last_reason,
+            portfolio=self.broker.snapshot(),
+        )
+
     async def validate_activation(
         self,
         symbol: str | None = None,

@@ -130,9 +130,26 @@ async def execute_trading_step_for_user(
     
     # 3. Execute Step
     result = await service.step(symbol=service.symbol, interval=service.interval, exchange=service.exchange)
-    
     # 4. Save results back to DB
-    new_state: PaperPortfolioState = result.portfolio
+    _save_portfolio_state_to_db(db, portfolio, result.portfolio, db_trades)
+
+    # Update AutomationState
+    auto_state.last_cycle_at = datetime.now(timezone.utc)
+    auto_state.last_action = result.action
+    auto_state.last_reason = result.reason
+    auto_state.symbol = service.symbol
+    auto_state.interval = service.interval
+    auto_state.exchange = service.exchange
+    
+    if result.signal:
+        auto_state.last_signal_json = result.signal.model_dump_json()
+    if result.risk_decision:
+        auto_state.last_risk_decision_json = result.risk_decision.model_dump_json()
+
+    db.commit()
+    return result
+
+def _save_portfolio_state_to_db(db: Session, portfolio: PaperPortfolio, new_state: PaperPortfolioState, db_trades: list):
     portfolio.cash = new_state.cash
     portfolio.equity = new_state.equity
     portfolio.peak_equity = new_state.peak_equity
@@ -177,19 +194,73 @@ async def execute_trading_step_for_user(
                 strategy=t.strategy
             ))
 
-    # Update AutomationState
-    auto_state.last_cycle_at = datetime.now(timezone.utc)
+async def close_position_for_user(db: Session, user: User, position_id: str):
+    settings = get_settings()
+    portfolio = get_or_create_portfolio(db, user)
+    db_positions = portfolio.open_positions
+    db_trades = portfolio.closed_trades
+    open_positions = [
+        BrokerPosition(
+            id=p.id, symbol=p.symbol, quantity=p.quantity, entry_price=p.entry_price,
+            current_price=p.current_price, stop_loss=p.stop_loss, take_profit=p.take_profit,
+            unrealized_pnl=p.unrealized_pnl, unrealized_pnl_pct=p.unrealized_pnl_pct,
+            opened_at=p.opened_at, strategy=p.strategy
+        ) for p in db_positions
+    ]
+    closed_trades = [
+        BrokerTrade(
+            id=t.id, symbol=t.symbol, side=t.side, quantity=t.quantity, entry_price=t.entry_price,
+            exit_price=t.exit_price, realized_pnl=t.realized_pnl, opened_at=t.opened_at,
+            closed_at=t.closed_at, exit_reason=t.exit_reason, strategy=t.strategy
+        ) for t in db_trades[-50:]
+    ]
+    
+    service = PaperTradingService(settings)
+    service.broker = PaperBroker(
+        initial_equity=settings.paper_initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
+        open_positions=open_positions, closed_trades=closed_trades, consecutive_losses=portfolio.consecutive_losses
+    )
+    result = service.close_position(position_id)
+    _save_portfolio_state_to_db(db, portfolio, result.portfolio, db_trades)
+    
+    auto_state = get_or_create_automation_state(db, user)
     auto_state.last_action = result.action
     auto_state.last_reason = result.reason
-    auto_state.symbol = service.symbol
-    auto_state.interval = service.interval
-    auto_state.exchange = service.exchange
+    db.commit()
+    return result
+
+async def close_all_positions_for_user(db: Session, user: User):
+    settings = get_settings()
+    portfolio = get_or_create_portfolio(db, user)
+    db_positions = portfolio.open_positions
+    db_trades = portfolio.closed_trades
+    open_positions = [
+        BrokerPosition(
+            id=p.id, symbol=p.symbol, quantity=p.quantity, entry_price=p.entry_price,
+            current_price=p.current_price, stop_loss=p.stop_loss, take_profit=p.take_profit,
+            unrealized_pnl=p.unrealized_pnl, unrealized_pnl_pct=p.unrealized_pnl_pct,
+            opened_at=p.opened_at, strategy=p.strategy
+        ) for p in db_positions
+    ]
+    closed_trades = [
+        BrokerTrade(
+            id=t.id, symbol=t.symbol, side=t.side, quantity=t.quantity, entry_price=t.entry_price,
+            exit_price=t.exit_price, realized_pnl=t.realized_pnl, opened_at=t.opened_at,
+            closed_at=t.closed_at, exit_reason=t.exit_reason, strategy=t.strategy
+        ) for t in db_trades[-50:]
+    ]
     
-    if result.signal:
-        auto_state.last_signal_json = result.signal.model_dump_json()
-    if result.risk_decision:
-        auto_state.last_risk_decision_json = result.risk_decision.model_dump_json()
-        
+    service = PaperTradingService(settings)
+    service.broker = PaperBroker(
+        initial_equity=settings.paper_initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
+        open_positions=open_positions, closed_trades=closed_trades, consecutive_losses=portfolio.consecutive_losses
+    )
+    result = service.close_all_positions()
+    _save_portfolio_state_to_db(db, portfolio, result.portfolio, db_trades)
+    
+    auto_state = get_or_create_automation_state(db, user)
+    auto_state.last_action = result.action
+    auto_state.last_reason = result.reason
     db.commit()
     return result
 

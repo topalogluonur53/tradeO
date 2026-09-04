@@ -13,7 +13,7 @@ from app.market_data.offline import build_offline_candles
 from app.market_data.okx import OkxMarketDataClient
 from app.trading.paper_broker import PaperPortfolioState, TradingCycleResult, PaperPosition, PaperTrade
 from app.trading.paper_trading import ActivationValidationSummary, AutomationState, PaperTradingService
-from app.trading.multi_tenant import execute_trading_step_for_user, get_or_create_automation_state, get_or_create_portfolio
+from app.trading.multi_tenant import execute_trading_step_for_user, get_or_create_automation_state, get_or_create_portfolio, close_position_for_user, close_all_positions_for_user
 from app.trading.schemas import SignalSide, Signal, RiskDecision
 from app.trading.strategy_engine import NexusAIStrategy
 
@@ -188,6 +188,23 @@ async def stop_automation(
     auto_state.last_reason = "Paper automation loop stopped"
     db.commit()
     return trading_state(current_user, db).automation
+
+
+@router.post("/positions/{position_id}/close", response_model=TradingCycleResult)
+async def close_position_endpoint(
+    position_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> TradingCycleResult:
+    return await close_position_for_user(db, current_user, position_id)
+
+
+@router.post("/positions/close-all", response_model=TradingCycleResult)
+async def close_all_positions_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> TradingCycleResult:
+    return await close_all_positions_for_user(db, current_user)
 
 
 @router.post("/reset", response_model=PaperPortfolioState)

@@ -476,3 +476,11 @@ export function runBacktest(
   const params = new URLSearchParams({ symbol, interval, limit: String(limit), exchange });
   return request<BacktestSummary>(`/api/trading/backtest?${params.toString()}`);
 }
+
+export function closePosition(positionId: string): Promise<TradingCycleResult> {
+  return request<TradingCycleResult>(`/api/trading/positions/${positionId}/close`, { method: "POST" });
+}
+
+export function closeAllPositions(): Promise<TradingCycleResult> {
+  return request<TradingCycleResult>("/api/trading/positions/close-all", { method: "POST" });
+}
