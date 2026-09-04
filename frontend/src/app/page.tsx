@@ -1521,15 +1521,15 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
       <table className="w-full table-fixed text-left text-xs xl:text-sm">
         <thead className="text-xs uppercase text-textMuted">
           <tr className="border-b border-line">
-            <th className="w-[12%] px-3 py-3 font-bold">Açılış</th>
-            <th className="w-[12%] px-3 py-3 font-bold">Sembol</th>
-            <th className="w-[12%] px-3 py-3 font-bold text-right">Miktar</th>
-            <th className="w-[12%] px-3 py-3 font-bold text-right">Giriş</th>
-            <th className="w-[12%] px-3 py-3 font-bold text-right">Güncel</th>
-            <th className="w-[13%] px-3 py-3 font-bold text-right">K/Z</th>
-            <th className="w-[11%] px-3 py-3 font-bold text-right">Stop</th>
-            <th className="w-[13%] px-3 py-3 font-bold text-right">Hedef</th>
-            <th className="w-[10%] px-3 py-3 font-bold text-right">Str.</th>
+            <th className="w-[12%] px-2 py-2 font-bold">Açılış</th>
+            <th className="w-[11%] px-2 py-2 font-bold">Sembol</th>
+            <th className="w-[13%] px-2 py-2 font-bold text-right">Büyüklük</th>
+            <th className="w-[11%] px-2 py-2 font-bold text-right">Giriş</th>
+            <th className="w-[11%] px-2 py-2 font-bold text-right">Güncel</th>
+            <th className="w-[13%] px-2 py-2 font-bold text-right">K/Z</th>
+            <th className="w-[10%] px-2 py-2 font-bold text-right">Stop</th>
+            <th className="w-[11%] px-2 py-2 font-bold text-right">Hedef</th>
+            <th className="w-[8%] px-2 py-2 font-bold text-right">Str.</th>
           </tr>
         </thead>
         <tbody>
@@ -1541,24 +1541,25 @@ function PositionsTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
 
             return (
               <tr key={position.id} className="border-b border-line/70 last:border-0">
-                <td className="truncate px-3 py-3 text-textMuted text-xs" title={formatFullDateTime(position.opened_at)}>{formatFullDateTime(position.opened_at)}</td>
-                <td className="truncate px-3 py-3 font-semibold" title={position.symbol}>{position.symbol}</td>
-                <td className="truncate px-3 py-3 text-right text-textMuted" title={formatQuantity(position.quantity)}>
-                  {formatQuantity(position.quantity)}
+                <td className="truncate px-2 py-2 text-textMuted text-xs" title={formatFullDateTime(position.opened_at)}>{formatFullDateTime(position.opened_at)}</td>
+                <td className="truncate px-2 py-2 font-semibold" title={position.symbol}>{position.symbol}</td>
+                <td className="truncate px-2 py-2 text-right text-textMuted" title={formatQuantity(position.quantity)}>
+                  <div className="text-textPrimary">{formatMoney(position.quantity * position.entry_price)}</div>
+                  <div className="text-[10px]">{formatQuantity(position.quantity)} Adet</div>
                 </td>
-                <td className="truncate px-3 py-3 text-right" title={formatPrice(position.entry_price)}>{formatPrice(position.entry_price)}</td>
-                <td className="truncate px-3 py-3 text-right" title={formatPrice(position.current_price ?? position.entry_price)}>
+                <td className="truncate px-2 py-2 text-right" title={formatPrice(position.entry_price)}>{formatPrice(position.entry_price)}</td>
+                <td className="truncate px-2 py-2 text-right" title={formatPrice(position.current_price ?? position.entry_price)}>
                   {formatPrice(position.current_price ?? position.entry_price)}
                 </td>
-                <td className={`px-3 py-3 text-right font-black ${pnlClass}`}>
+                <td className={`px-2 py-2 text-right font-black ${pnlClass}`}>
                   <div>{formatSignedMoney(pnl)}</div>
-                  <div className="text-xs">{formatSignedPercent(pnlPct)}</div>
+                  <div className="text-[10px]">{formatSignedPercent(pnlPct)}</div>
                 </td>
-                <td className="truncate px-3 py-3 text-right text-rose-100" title={formatPrice(position.stop_loss)}>{formatPrice(position.stop_loss)}</td>
-                <td className="truncate px-3 py-3 text-right text-teal-100" title={formatPrice(position.take_profit)}>
+                <td className="truncate px-2 py-2 text-right text-rose-100" title={formatPrice(position.stop_loss)}>{formatPrice(position.stop_loss)}</td>
+                <td className="truncate px-2 py-2 text-right text-teal-100" title={formatPrice(position.take_profit)}>
                   {formatPrice(position.take_profit)}
                 </td>
-                <td className="truncate px-3 py-3 text-right text-textMuted" title={position.strategy}>{strategyLabel}</td>
+                <td className="truncate px-2 py-2 text-right text-textMuted text-[10px]" title={position.strategy}>{strategyLabel}</td>
               </tr>
             );
           })}
@@ -1575,36 +1576,39 @@ function TradesTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[900px] text-left text-sm">
+    <div className="overflow-hidden">
+      <table className="w-full table-fixed text-left text-xs xl:text-sm">
         <thead className="text-xs uppercase text-textMuted">
           <tr className="border-b border-line">
-            <th className="px-4 py-3 font-bold">Açılış Zamanı</th>
-            <th className="px-4 py-3 font-bold">Kapanış Zamanı</th>
-            <th className="px-4 py-3 font-bold">Ürün / Adet</th>
-            <th className="px-4 py-3 font-bold">Yön</th>
-            <th className="px-4 py-3 font-bold text-right">Giriş Fiyatı</th>
-            <th className="px-4 py-3 font-bold text-right">Çıkış Fiyatı</th>
-            <th className="px-4 py-3 font-bold text-right">PnL</th>
-            <th className="px-4 py-3 font-bold">Neden</th>
+            <th className="w-[14%] px-2 py-2 font-bold">Açılış</th>
+            <th className="w-[14%] px-2 py-2 font-bold">Kapanış</th>
+            <th className="w-[16%] px-2 py-2 font-bold">Büyüklük</th>
+            <th className="w-[12%] px-2 py-2 font-bold text-right">Giriş</th>
+            <th className="w-[12%] px-2 py-2 font-bold text-right">Çıkış</th>
+            <th className="w-[14%] px-2 py-2 font-bold text-right">K/Z</th>
+            <th className="w-[18%] px-2 py-2 font-bold">Neden</th>
           </tr>
         </thead>
         <tbody>
           {trades.slice().reverse().map((trade) => (
             <tr key={trade.id} className="border-b border-line/70 last:border-0">
-              <td className="px-4 py-3 text-textMuted text-xs">{formatFullDateTime(trade.opened_at)}</td>
-              <td className="px-4 py-3 text-textMuted text-xs">{formatFullDateTime(trade.closed_at)}</td>
-              <td className="px-4 py-3">
-                <div className="font-semibold">{trade.symbol}</div>
-                <div className="text-xs text-textMuted">{formatQuantity(trade.quantity)} Adet</div>
+              <td className="truncate px-2 py-2 text-textMuted text-[10px] xl:text-xs">{formatFullDateTime(trade.opened_at)}</td>
+              <td className="truncate px-2 py-2 text-textMuted text-[10px] xl:text-xs">{formatFullDateTime(trade.closed_at)}</td>
+              <td className="truncate px-2 py-2">
+                <div className="font-semibold text-textPrimary flex gap-1 items-center">
+                  <span>{trade.symbol}</span>
+                  <span className="text-[9px] px-1 bg-panelMuted rounded text-textMuted">{trade.side === "BUY" ? "AL" : "SAT"}</span>
+                </div>
+                <div className="text-[10px] text-textMuted">
+                  {formatMoney(trade.quantity * trade.entry_price)} <span className="opacity-70">({formatQuantity(trade.quantity)} Adet)</span>
+                </div>
               </td>
-              <td className="px-4 py-3">{trade.side}</td>
-              <td className="px-4 py-3 text-right">{formatPrice(trade.entry_price)}</td>
-              <td className="px-4 py-3 text-right">{formatPrice(trade.exit_price)}</td>
-              <td className={`px-4 py-3 text-right font-semibold ${trade.realized_pnl >= 0 ? "text-teal-100" : "text-rose-100"}`}>
+              <td className="truncate px-2 py-2 text-right">{formatPrice(trade.entry_price)}</td>
+              <td className="truncate px-2 py-2 text-right">{formatPrice(trade.exit_price)}</td>
+              <td className={`truncate px-2 py-2 text-right font-semibold ${trade.realized_pnl >= 0 ? "text-teal-100" : "text-rose-100"}`}>
                 {formatMoney(trade.realized_pnl)}
               </td>
-              <td className="px-4 py-3 text-textMuted text-xs">{trade.exit_reason}</td>
+              <td className="truncate px-2 py-2 text-textMuted text-[10px]" title={trade.exit_reason}>{trade.exit_reason}</td>
             </tr>
           ))}
         </tbody>
