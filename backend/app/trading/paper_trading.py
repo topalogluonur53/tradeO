@@ -18,7 +18,10 @@ from app.trading.strategy_engine import NexusAIStrategy
 
 SCAN_CANDIDATE_LIMIT = 8
 PAPER_MARKET_CURSOR_STEP = 4
-SCAN_UNIVERSE_LIMIT = 160
+# Zero means that every eligible live USDT ticker is part of the rotating
+# universe. Only SCAN_CANDIDATE_LIMIT candles are fetched per cycle so the
+# exchange APIs are not flooded.
+SCAN_UNIVERSE_LIMIT = 0
 RECENT_SCAN_SYMBOL_LIMIT = 24
 STABLE_SCAN_BASE_ASSETS = {
     "USDT",
@@ -38,6 +41,7 @@ STABLE_SCAN_BASE_ASSETS = {
 }
 LEVERAGED_SCAN_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
 INACTIVE_SCAN_BASE_ASSETS = {"XMR"}
+_GLOBAL_SCAN_CURSOR = 0
 
 
 class AutomationState(BaseModel):
@@ -401,12 +405,19 @@ class PaperTradingService:
                 item.symbol.replace("-", "").upper() != selected_normalized,
                 -item.quote_volume,
             ),
-        )[:SCAN_UNIVERSE_LIMIT]
+        )
+        if SCAN_UNIVERSE_LIMIT > 0:
+            prioritized = prioritized[:SCAN_UNIVERSE_LIMIT]
         if not prioritized:
             return []
 
-        cursor = self._scan_cursor % len(prioritized)
-        self._scan_cursor = (cursor + SCAN_CANDIDATE_LIMIT) % len(prioritized)
+        # The worker reconstructs a service for each user/cycle. Keep the
+        # rotating window at module scope so a new service does not restart
+        # every scan from the same highest-volume symbols.
+        global _GLOBAL_SCAN_CURSOR
+        cursor = _GLOBAL_SCAN_CURSOR % len(prioritized)
+        _GLOBAL_SCAN_CURSOR = (cursor + SCAN_CANDIDATE_LIMIT) % len(prioritized)
+        self._scan_cursor = _GLOBAL_SCAN_CURSOR
         return [*prioritized[cursor:], *prioritized[:cursor]][:SCAN_CANDIDATE_LIMIT]
 
     def _is_scan_candidate(self, ticker: MarketTicker) -> bool:

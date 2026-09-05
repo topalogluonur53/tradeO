@@ -20,6 +20,8 @@ Windows quick start (after installing dependencies once):
 
 The script starts the FastAPI backend and Next.js frontend in separate terminal windows, waits until both are ready, and opens the application in the default browser. It leaves an already running service untouched. Use `.\baslat.bat --no-browser` to skip opening the browser.
 
+To open the terminal from a phone on the same Wi-Fi, run the script on the PC, use `ipconfig` to find the PC's IPv4 address, and open `http://<PC-IP>:3000` on the phone. Allow Python/Node through Windows Firewall if Windows prompts for network access.
+
 ## How To Use The Paper Bot
 
 1. Run `.\baslat.bat` and open http://127.0.0.1:3000.

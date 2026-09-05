@@ -25,7 +25,7 @@ call :is_port_listening 8000
 if not errorlevel 1 (
   echo Backend is already running on http://127.0.0.1:8000
 ) else (
-  start "NEXUS API" /D "%BACKEND_DIR%" cmd /k ""%PYTHON%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
+  start "NEXUS API" /D "%BACKEND_DIR%" cmd /k ""%PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
   start "NEXUS WORKER" /D "%BACKEND_DIR%" cmd /k ""%PYTHON%" -m app.worker"
   echo Backend and Worker are starting...
 )
@@ -34,7 +34,7 @@ call :is_port_listening 3000
 if not errorlevel 1 (
   echo Frontend is already running on http://127.0.0.1:3000
 ) else (
-  start "NEXUS WEB" /D "%FRONTEND_DIR%" cmd /k "node.exe "%FRONTEND_DIR%\node_modules\next\dist\bin\next" dev -H 127.0.0.1 --port 3000"
+  start "NEXUS WEB" /D "%FRONTEND_DIR%" cmd /k "node.exe "%FRONTEND_DIR%\node_modules\next\dist\bin\next" dev -H 0.0.0.0 --port 3000"
   echo Frontend is starting on http://127.0.0.1:3000
 )
 
@@ -49,6 +49,8 @@ if errorlevel 1 goto :error
 echo NEXUS AI TRADER
 echo Frontend: http://127.0.0.1:3000
 echo API health: http://127.0.0.1:8000/api/health
+echo.
+echo Mobile access: run ipconfig, find this PC's IPv4 address, then open http://YOUR-IP:3000 on the phone.
 
 if "%NO_BROWSER%"=="0" (
   echo Opening the application in your browser...
