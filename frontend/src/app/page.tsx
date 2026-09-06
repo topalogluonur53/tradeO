@@ -1342,6 +1342,36 @@ function PaperTradingSection({
           Paper işlemler güvenlik nedeniyle duraklatıldı. Devam etmek için Ayarlar bölümünden paper modu sürdürün.
         </div>
       ) : null}
+      <details className="rounded-md border border-line bg-panel">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-textMuted">Gelişmiş test araçları</summary>
+        <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
+          <Button variant="secondary" disabled={tradingLoading || halted} onClick={() => void onRunTradingCycle()}>
+            <RefreshCw className={`h-4 w-4 ${tradingLoading ? "animate-spin" : ""}`} aria-hidden="true" />
+            Tek döngü çalıştır
+          </Button>
+          <div className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-panelMuted/40 p-3">
+            <label className="grid gap-1 text-xs font-bold text-textMuted">
+              Yeni sanal sermaye (USD)
+              <input
+                type="number"
+                min="1"
+                step="100"
+                value={capitalInput}
+                placeholder={portfolio ? String(portfolio.initial_equity) : "10000"}
+                onChange={(event) => setCapitalInput(event.target.value)}
+                className="h-9 w-44 rounded-md border border-line bg-panel px-3 text-sm text-textPrimary outline-none focus:border-accent"
+                disabled={tradingLoading || running}
+              />
+            </label>
+            <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void handleCapitalReset()}>
+              Sermayeyi uygula ve sıfırla
+            </Button>
+          </div>
+          <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void onResetPortfolio()}>
+            Portföyü sıfırla
+          </Button>
+        </div>
+      </details>
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="rounded-md border border-line bg-panel">
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
@@ -1381,36 +1411,6 @@ function PaperTradingSection({
           />
         </div>
       </div>
-      <details className="rounded-md border border-line bg-panel">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-textMuted">Gelişmiş test araçları</summary>
-        <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
-          <Button variant="secondary" disabled={tradingLoading || halted} onClick={() => void onRunTradingCycle()}>
-            <RefreshCw className={`h-4 w-4 ${tradingLoading ? "animate-spin" : ""}`} aria-hidden="true" />
-            Tek döngü çalıştır
-          </Button>
-          <div className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-panelMuted/40 p-3">
-            <label className="grid gap-1 text-xs font-bold text-textMuted">
-              Yeni sanal sermaye (USD)
-              <input
-                type="number"
-                min="1"
-                step="100"
-                value={capitalInput}
-                placeholder={portfolio ? String(portfolio.initial_equity) : "10000"}
-                onChange={(event) => setCapitalInput(event.target.value)}
-                className="h-9 w-44 rounded-md border border-line bg-panel px-3 text-sm text-textPrimary outline-none focus:border-accent"
-                disabled={tradingLoading || running}
-              />
-            </label>
-            <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void handleCapitalReset()}>
-              Sermayeyi uygula ve sıfırla
-            </Button>
-          </div>
-          <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void onResetPortfolio()}>
-            Portföyü sıfırla
-          </Button>
-        </div>
-      </details>
     </div>
   );
 }
