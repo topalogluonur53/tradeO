@@ -125,6 +125,11 @@ class NexusAIStrategy:
         )
 
 
+# Compatibility name retained for integrations that still import the former
+# strategy class. Both names intentionally use the same deterministic engine.
+EmaRsiStrategy = NexusAIStrategy
+
+
 def _confidence(indicators: dict[str, float], regime: MarketRegime) -> float:
     trend_score = min(0.35, abs(indicators["ema_slope"]) * 15)
     rsi_distance = abs(55 - indicators["rsi"])

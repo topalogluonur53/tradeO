@@ -11,29 +11,38 @@ from app.core.logging import configure_logging, get_logger
 async def run_trading_worker():
     settings = get_settings()
     logger = get_logger(__name__)
-    logger.info("Trading Worker initialized; dynamic Binance + OKX universe scan enabled")
+    logger.info("Trading Worker initialized")
     
     while True:
+        db: Session | None = None
         try:
             db: Session = get_session_factory()()
             try:
                 # Find all active automation states
-                active_states = db.query(AutomationState).filter(AutomationState.enabled == True).all()
+                active_state_ids = [
+                    state.id
+                    for state in db.query(AutomationState)
+                    .filter(AutomationState.enabled.is_(True), AutomationState.running.is_(True))
+                    .all()
+                ]
                 
                 # Execute step for each user
-                for state in active_states:
+                for state_id in active_state_ids:
+                    state = db.get(AutomationState, state_id)
+                    if state is None or not state.enabled or not state.running:
+                        continue
                     user = db.query(User).filter(User.id == state.user_id).first()
                     if user and not user.trading_halted:
                         try:
-                            # The service fetches live tickers from Binance and
-                            # OKX, filters invalid/leveraged/stable pairs, and
-                            # rotates through the complete eligible universe.
+                            # Honour the exchange selected by the user. "all"
+                            # still performs the dynamic Binance + OKX scan.
                             result = await execute_trading_step_for_user(
                                 db=db,
                                 user=user,
                                 symbol=state.symbol,
                                 interval=state.interval,
-                                exchange="all",
+                                exchange=state.exchange,
+                                automation_only=True,
                             )
                             logger.info(
                                 "paper_scan_cycle",
@@ -44,17 +53,32 @@ async def run_trading_worker():
                                     "reason": result.reason,
                                 },
                             )
+                        except asyncio.CancelledError:
+                            raise
                         except Exception as e:
+                            # A failed flush/commit leaves SQLAlchemy in a
+                            # rollback-only state. Reset it before recording a
+                            # recoverable cycle error; otherwise the worker
+                            # would fail every subsequent loop as well.
+                            db.rollback()
+                            state = db.get(AutomationState, state_id)
+                            if state is None:
+                                continue
                             logger.error(f"Error executing step for user {user.id}: {e}", exc_info=True)
                             state.last_action = "AUTO_ERROR"
                             state.last_reason = str(e)
                             db.commit()
             finally:
                 db.close()
+                db = None
+        except asyncio.CancelledError:
+            raise
                 
         except Exception as e:
-            logger = get_logger(__name__)
             logger.error(f"Trading Worker encountered a critical error: {e}", exc_info=True)
+            if db is not None:
+                db.rollback()
+                db.close()
             
         # Sleep for the configured interval
         await asyncio.sleep(settings.paper_trade_interval_seconds)

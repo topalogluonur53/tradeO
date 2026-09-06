@@ -132,13 +132,6 @@ class PaperBroker:
                     remaining.append(position)
                     continue
 
-                if self._trailing_stop_enabled:
-                    # Trailing Stop Logic: 
-                    # Stop is updated if (current high - trailing distance) > current stop
-                    potential_new_stop = candle.high * (1.0 - self._trailing_stop_distance_pct)
-                    if potential_new_stop > position.stop_loss:
-                        position.stop_loss = potential_new_stop
-
                 exit_price: float | None = None
                 exit_reason: str | None = None
 
@@ -150,6 +143,14 @@ class PaperBroker:
                     exit_reason = "TAKE_PROFIT"
 
                 if exit_price is None or exit_reason is None:
+                    if self._trailing_stop_enabled:
+                        # Update a trailing stop only after evaluating the
+                        # current candle. OHLC data cannot prove that the high
+                        # occurred before the low, so updating first could
+                        # fabricate an intrabar stop trigger.
+                        potential_new_stop = candle.high * (1.0 - self._trailing_stop_distance_pct)
+                        if potential_new_stop > position.stop_loss:
+                            position.stop_loss = potential_new_stop
                     remaining.append(position)
                     continue
 
@@ -229,6 +230,12 @@ class PaperBroker:
         with self._lock:
             normalized = normalize_symbol(symbol)
             return any(normalize_symbol(position.symbol) == normalized for position in self._open_positions)
+
+    def has_exact_open_position(self, symbol: str) -> bool:
+        """Match an exchange-specific symbol without merging BTCUSDT/BTC-USDT."""
+        with self._lock:
+            normalized = symbol.upper().strip()
+            return any(position.symbol.upper().strip() == normalized for position in self._open_positions)
 
     def _position_with_mark(
         self,

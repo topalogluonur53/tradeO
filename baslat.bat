@@ -21,13 +21,30 @@ if not exist "%FRONTEND_DIR%\node_modules\next" (
   goto :error
 )
 
+echo Checking database schema...
+pushd "%BACKEND_DIR%"
+"%PYTHON%" -m alembic upgrade head
+if errorlevel 1 (
+  popd
+  echo Database schema could not be prepared.
+  goto :error
+)
+popd
+
 call :is_port_listening 8000
 if not errorlevel 1 (
   echo Backend is already running on http://127.0.0.1:8000
 ) else (
   start "NEXUS API" /D "%BACKEND_DIR%" cmd /k ""%PYTHON%" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+  echo Backend is starting...
+)
+
+call :is_worker_running
+if not errorlevel 1 (
+  echo Paper trading worker is already running.
+) else (
   start "NEXUS WORKER" /D "%BACKEND_DIR%" cmd /k ""%PYTHON%" -m app.worker"
-  echo Backend and Worker are starting...
+  echo Paper trading worker is starting...
 )
 
 call :is_port_listening 3000
@@ -67,6 +84,10 @@ exit /b 1
 
 :is_port_listening
 netstat -ano | findstr /R /C:":%~1 " | findstr /I /R /C:"LISTEN" /C:"D.NLEN" >nul
+exit /b %errorlevel%
+
+:is_worker_running
+powershell.exe -NoProfile -Command "$worker = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'app\.worker' }; if ($worker) { exit 0 }; exit 1" >nul 2>&1
 exit /b %errorlevel%
 
 :wait_for_url

@@ -84,10 +84,12 @@ class ActivationValidationSummary(BaseModel):
 
 class PaperTradingService:
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self.broker = create_default_broker(settings)
+        # get_settings() is cached. Each service mutates risk limits for its
+        # owner, so it must never retain the shared Settings instance.
+        self.settings = settings.model_copy(deep=True)
+        self.broker = create_default_broker(self.settings)
         self.strategy = NexusAIStrategy()
-        self.risk_engine = RiskEngine(settings)
+        self.risk_engine = RiskEngine(self.settings)
         self.validator = OrderValidator()
         self.symbol = settings.paper_default_symbol
         self.interval = settings.paper_default_interval
@@ -330,6 +332,18 @@ class PaperTradingService:
 
         valid_series = [series for series in series_results if not isinstance(series, Exception)]
         if valid_series:
+            candle_mark_prices = {
+                series.symbol.replace("-", "").upper(): series.candles[-1].close
+                for series in valid_series
+            }
+            # Every open position must receive a stop/take-profit check in a
+            # scan. Previously only the one selected candidate was evaluated,
+            # so positions outside the 12-symbol window could remain open
+            # indefinitely.
+            closed_trades = []
+            for series in valid_series:
+                closed_trades.extend(self.broker.evaluate_existing_positions(series.candles[-1]))
+
             # Score every candle set first, then execute only the strongest
             # opportunity. This avoids opening the first BUY in ticker order
             # while a better setup is still in the same scan window.
@@ -338,7 +352,7 @@ class PaperTradingService:
                 for series in valid_series
             ]
             open_position_series = [
-                item for item in scored if self.broker.has_open_position(item[0].symbol)
+                item for item in scored if self.broker.has_exact_open_position(item[0].symbol)
             ]
             buy_candidates = [item for item in scored if item[1].side is SignalSide.BUY]
             current_open_count = len(self.broker.snapshot().open_positions)
@@ -356,9 +370,32 @@ class PaperTradingService:
             else:
                 selected_series = max(scored, key=lambda item: self._signal_score(item[1]))[0]
 
-            result = self._execute_series(selected_series)
+            if closed_trades:
+                signal = next(signal for series, signal in scored if series is selected_series)
+                self.symbol = selected_series.symbol
+                self.interval = selected_series.interval
+                self.exchange = "all"
+                self.last_cycle_at = datetime.now(UTC)
+                self.last_action = "POSITION_CLOSED"
+                self.last_reason = closed_trades[-1].exit_reason
+                self.last_signal = signal
+                self.last_risk_decision = None
+                result = TradingCycleResult(
+                    action=self.last_action,
+                    reason=self.last_reason,
+                    signal=signal,
+                    portfolio=self.broker.snapshot(),
+                )
+            else:
+                result = self._execute_series(selected_series)
             if self._latest_ticker_prices:
-                result.portfolio = self.broker.snapshot(mark_prices=self._latest_ticker_prices)
+                # The candle used for the trading decision is the authoritative
+                # mark for scanned symbols. A 24h ticker can otherwise be from
+                # a different synthetic/offline snapshot and create a false
+                # drawdown immediately after opening a position.
+                result.portfolio = self.broker.snapshot(
+                    mark_prices={**self._latest_ticker_prices, **candle_mark_prices}
+                )
             scan_score = self._signal_score(result.signal) if result.signal else 0.0
             result.reason = (
                 f"Tarama tamamlandi: {len(candidates)} Binance/OKX adayi, "
@@ -428,7 +465,7 @@ class PaperTradingService:
             for ticker in tickers
             if self._is_scan_candidate(ticker)
             and (
-                self.broker.has_open_position(ticker.symbol)
+                self.broker.has_exact_open_position(ticker.symbol)
                 or ticker.symbol.replace("-", "").upper() not in recent_symbols
             )
         ]
@@ -450,27 +487,37 @@ class PaperTradingService:
             momentum = max(0.0, min(1.0, 0.5 + (item.price_change_percent / 20.0)))
             return (liquidity * 0.55) + (momentum * 0.30) + (activity * 0.15)
 
-        prioritized = sorted(
-            candidates,
+        open_candidates = [
+            item for item in candidates if self.broker.has_exact_open_position(item.symbol)
+        ]
+        fresh_candidates = [item for item in candidates if item not in open_candidates]
+        open_candidates.sort(key=market_priority, reverse=True)
+        fresh_candidates.sort(
             key=lambda item: (
-                not self.broker.has_open_position(item.symbol),
                 item.symbol.replace("-", "").upper() != selected_normalized,
                 -market_priority(item),
             ),
         )
         if SCAN_UNIVERSE_LIMIT > 0:
-            prioritized = prioritized[:SCAN_UNIVERSE_LIMIT]
-        if not prioritized:
+            fresh_candidates = fresh_candidates[:SCAN_UNIVERSE_LIMIT]
+        if not open_candidates and not fresh_candidates:
             return []
 
         # The worker reconstructs a service for each user/cycle. Keep the
         # rotating window at module scope so a new service does not restart
         # every scan from the same highest-volume symbols.
         global _GLOBAL_SCAN_CURSOR
-        cursor = _GLOBAL_SCAN_CURSOR % len(prioritized)
-        _GLOBAL_SCAN_CURSOR = (cursor + SCAN_CANDIDATE_LIMIT) % len(prioritized)
+        cursor = _GLOBAL_SCAN_CURSOR % len(fresh_candidates) if fresh_candidates else 0
+        _GLOBAL_SCAN_CURSOR = (
+            (cursor + SCAN_CANDIDATE_LIMIT) % len(fresh_candidates)
+            if fresh_candidates
+            else 0
+        )
         self._scan_cursor = _GLOBAL_SCAN_CURSOR
-        return [*prioritized[cursor:], *prioritized[:cursor]][:SCAN_CANDIDATE_LIMIT]
+        rotated_fresh = [*fresh_candidates[cursor:], *fresh_candidates[:cursor]]
+        # Do not truncate open positions: they need an exit check even when a
+        # user has configured more positions than the new-entry scan window.
+        return [*open_candidates, *rotated_fresh[:SCAN_CANDIDATE_LIMIT]]
 
     def _is_scan_candidate(self, ticker: MarketTicker) -> bool:
         base_asset = base_asset_from_symbol(ticker.symbol)

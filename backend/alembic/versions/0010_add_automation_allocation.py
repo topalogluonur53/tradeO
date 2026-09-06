@@ -24,8 +24,11 @@ def upgrade() -> None:
         "automation_states",
         sa.Column("allocation_usd", sa.Float(), nullable=False, server_default="0"),
     )
-    op.alter_column("automation_states", "position_count", server_default=None)
-    op.alter_column("automation_states", "allocation_usd", server_default=None)
+    # SQLite cannot DROP defaults through ALTER COLUMN. Leaving these defaults
+    # in place is safe and lets local paper-trading startup migrate cleanly.
+    if op.get_bind().dialect.name != "sqlite":
+        op.alter_column("automation_states", "position_count", server_default=None)
+        op.alter_column("automation_states", "allocation_usd", server_default=None)
 
 
 def downgrade() -> None:

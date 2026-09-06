@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-import json
 
 from app.api.routes.auth import get_current_user
 from app.core.config import get_settings
@@ -49,6 +48,26 @@ class ResetPaperPortfolioRequest(BaseModel):
     initial_equity: float | None = Field(default=None, gt=0.0, le=1_000_000_000.0)
 
 
+def parse_stored_model(raw_value: str | None, model_type: type[Signal] | type[RiskDecision]):
+    if not raw_value:
+        return None
+    try:
+        return model_type.model_validate_json(raw_value)
+    except (ValueError, TypeError):
+        # Historical data must not make the entire paper-trading screen fail.
+        return None
+
+
+def normalize_trading_exchange(exchange: str) -> str:
+    selected_exchange = normalize_exchange(exchange)
+    if selected_exchange not in {"binance", "okx", "all"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="exchange must be one of: binance, okx, all",
+        )
+    return selected_exchange
+
+
 @router.get("/state", response_model=TradingStateResponse)
 def trading_state(
     current_user: User = Depends(get_current_user),
@@ -59,12 +78,10 @@ def trading_state(
     
     # Parse last signal and risk decision
     last_signal = None
-    if auto_state.last_signal_json:
-        last_signal = Signal.model_validate_json(auto_state.last_signal_json)
+    last_signal = parse_stored_model(auto_state.last_signal_json, Signal)
         
     last_risk = None
-    if auto_state.last_risk_decision_json:
-        last_risk = RiskDecision.model_validate_json(auto_state.last_risk_decision_json)
+    last_risk = parse_stored_model(auto_state.last_risk_decision_json, RiskDecision)
     
     return TradingStateResponse(
         automation=AutomationState(
@@ -135,11 +152,12 @@ async def activation_validation(
     db: Session = Depends(get_db)
 ) -> ActivationValidationSummary:
     try:
+        selected_exchange = normalize_trading_exchange(exchange)
         service = PaperTradingService(get_settings())
         return await service.validate_activation(
             symbol=symbol,
             interval=interval,
-            exchange=exchange,
+            exchange=selected_exchange,
             position_count=position_count,
             allocation_usd=allocation_usd,
         )
@@ -156,8 +174,9 @@ async def run_trading_step(
     db: Session = Depends(get_db)
 ) -> TradingCycleResult:
     try:
+        selected_exchange = normalize_trading_exchange(exchange)
         return await execute_trading_step_for_user(
-            db=db, user=current_user, symbol=symbol, interval=interval, exchange=exchange
+            db=db, user=current_user, symbol=symbol, interval=interval, exchange=selected_exchange
         )
     except (ValueError, MarketDataError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -173,10 +192,26 @@ async def start_automation(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> AutomationState:
+    if current_user.trading_halted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Paper trading is halted. Resume paper mode before starting automation.",
+        )
+    if current_user.trading_mode != "paper":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only paper trading automation is available.",
+        )
+
+    selected_exchange = normalize_trading_exchange(exchange)
     auto_state = get_or_create_automation_state(db, current_user)
     portfolio = get_or_create_portfolio(db, current_user)
-    selected_position_count = position_count or auto_state.position_count
-    selected_allocation = allocation_usd or auto_state.allocation_usd or portfolio.cash
+    selected_position_count = position_count if position_count is not None else auto_state.position_count
+    selected_allocation = (
+        allocation_usd
+        if allocation_usd is not None
+        else auto_state.allocation_usd or portfolio.cash
+    )
     if selected_allocation > portfolio.equity:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -187,7 +222,7 @@ async def start_automation(
     validation = await service.validate_activation(
         symbol=symbol,
         interval=interval,
-        exchange=exchange,
+        exchange=selected_exchange,
         position_count=selected_position_count,
         allocation_usd=selected_allocation,
     )
@@ -198,18 +233,21 @@ async def start_automation(
             detail=f"Activation validation failed: {failed}",
         )
     
-    auto_state.enabled = True
-    auto_state.running = True
+    # Persist the selected settings before the initial cycle, but do not make
+    # them visible to the worker yet. This prevents the API's first cycle and
+    # the worker's first cycle from trading the same portfolio concurrently.
+    auto_state.enabled = False
+    auto_state.running = False
     auto_state.symbol = symbol
     auto_state.interval = interval
-    auto_state.exchange = exchange
+    auto_state.exchange = selected_exchange
     auto_state.position_count = selected_position_count
     auto_state.allocation_usd = selected_allocation
-    auto_state.last_action = "AUTO_STARTED"
-    auto_state.last_reason = "Paper automation loop started"
+    auto_state.last_action = "AUTO_STARTING"
+    auto_state.last_reason = "Preparing the first paper automation cycle"
     db.commit()
 
-    # Run the first dynamic scan immediately. The standalone worker keeps
+    # Run the first selected-market cycle immediately. The standalone worker keeps
     # scanning afterwards, but the user should not have to wait for its next
     # 30-second interval to see the bot react.
     try:
@@ -218,12 +256,26 @@ async def start_automation(
             user=current_user,
             symbol=symbol,
             interval=interval,
-            exchange="all",
+            exchange=selected_exchange,
         )
-    except (ValueError, MarketDataError) as exc:
+    except Exception as exc:
+        db.rollback()
+        auto_state = db.get(DBAutomationState, auto_state.id)
+        if auto_state is None:
+            raise
         auto_state.last_action = "AUTO_ERROR"
-        auto_state.last_reason = str(exc)
-        db.commit()
+        auto_state.last_reason = f"Initial paper cycle failed: {exc}"
+    else:
+        auto_state = db.get(DBAutomationState, auto_state.id)
+        if auto_state is None:
+            raise RuntimeError("Paper automation state disappeared during startup")
+
+    # Enable only after the synchronous initial step has finished. If that
+    # step failed, leave the automation enabled so the resilient worker can
+    # retry it on the next interval while exposing AUTO_ERROR to the UI.
+    auto_state.enabled = True
+    auto_state.running = True
+    db.commit()
 
     
     return trading_state(current_user, db).automation

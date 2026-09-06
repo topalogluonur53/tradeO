@@ -46,7 +46,8 @@ async def execute_trading_step_for_user(
     user: User, 
     symbol: str | None = None, 
     interval: str | None = None, 
-    exchange: str | None = None
+    exchange: str | None = None,
+    automation_only: bool = False,
 ):
     settings = get_settings()
     
@@ -115,6 +116,12 @@ async def execute_trading_step_for_user(
     # cycle. The selected budget is divided equally across the requested
     # number of positions; the risk engine still enforces its safety caps.
     auto_state = get_or_create_automation_state(db, user)
+    if automation_only and (not auto_state.enabled or not auto_state.running):
+        return TradingCycleResult(
+            action="AUTO_STOPPED",
+            reason="Paper automation is disabled",
+            portfolio=service.broker.snapshot(),
+        )
     service.position_count = max(1, auto_state.position_count)
     service.risk_engine.settings.max_open_positions = min(
         user.max_open_positions,

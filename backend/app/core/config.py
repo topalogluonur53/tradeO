@@ -22,9 +22,10 @@ class Settings(BaseSettings):
     trading_mode: Literal["paper", "testnet"] = "paper"
     kill_switch_enabled: bool = False
     market_data_base_url: str = "https://data-api.binance.vision"
-    market_data_timeout_seconds: float = 10.0
-    paper_initial_equity: float = 10_000.0
-    paper_trade_interval_seconds: float = 30.0
+    market_data_timeout_seconds: float = Field(default=10.0, gt=0.0, le=120.0)
+    paper_initial_equity: float = Field(default=10_000.0, gt=0.0)
+    # A non-positive interval would turn the worker into a tight retry loop.
+    paper_trade_interval_seconds: float = Field(default=30.0, gt=0.0, le=3600.0)
     paper_default_symbol: str = "BTCUSDT"
     paper_default_interval: str = "1h"
 

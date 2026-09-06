@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from app.api.routes import trading as trading_routes
 from app.core.config import get_settings
 from app.main import app
 from app.market_data.offline import build_offline_candles, build_offline_tickers
@@ -237,6 +238,11 @@ def test_scan_candidates_filter_invalid_markets_and_rotate_windows() -> None:
 def test_activation_validation_reports_ready_controls(monkeypatch: pytest.MonkeyPatch) -> None:
     trading_control.resume_paper_mode()
     use_offline_market_fixture(paper_trading_service, monkeypatch)
+    monkeypatch.setattr(
+        trading_routes,
+        "PaperTradingService",
+        lambda _settings: paper_trading_service,
+    )
 
     with TestClient(app) as client:
         response = client.get("/api/trading/validation?symbol=BTCUSDT&interval=1h&exchange=all")
