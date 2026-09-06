@@ -41,7 +41,12 @@ class RiskEngine:
         if portfolio.open_positions >= self.settings.max_open_positions:
             return RiskDecision(approved=False, reason="MAX_OPEN_POSITIONS_REACHED")
 
-        if portfolio.consecutive_losses >= self.settings.cooldown_after_losses:
+        # A zero threshold disables the cooldown. Comparing directly with zero
+        # would reject every signal because consecutive_losses is never negative.
+        if (
+            self.settings.cooldown_after_losses > 0
+            and portfolio.consecutive_losses >= self.settings.cooldown_after_losses
+        ):
             return RiskDecision(approved=False, reason="COOLDOWN_AFTER_CONSECUTIVE_LOSSES")
 
         if abs(portfolio.daily_pnl) >= portfolio.account_equity * self.settings.daily_loss_limit_pct and portfolio.daily_pnl < 0:

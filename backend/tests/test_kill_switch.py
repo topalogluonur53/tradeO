@@ -51,3 +51,22 @@ def test_shared_kill_switch_blocks_risk_and_order_validation() -> None:
     assert risk_decision.reason == "KILL_SWITCH_ENABLED"
     assert order_valid is False
     assert order_reason == "KILL_SWITCH_ENABLED"
+
+
+def test_zero_cooldown_allows_a_valid_signal() -> None:
+    settings = get_settings()
+    settings.cooldown_after_losses = 0
+
+    decision = RiskEngine(settings).evaluate(
+        valid_signal(),
+        PortfolioSnapshot(
+            account_equity=10_000.0,
+            current_exposure=0.0,
+            open_positions=0,
+            daily_pnl=0.0,
+            peak_equity=10_000.0,
+            consecutive_losses=0,
+        ),
+    )
+
+    assert decision.approved is True
