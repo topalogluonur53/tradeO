@@ -96,6 +96,11 @@ type AuditEvent = {
   tone: "paper" | "neutral" | "warning" | "danger";
 };
 
+type AutomationStartSettings = {
+  positionCount: number;
+  allocationUsd: number;
+};
+
 const navigation: NavigationItem[] = [
   { id: "dashboard", label: "Kontrol Paneli", icon: Gauge },
   { id: "markets", label: "Piyasalar", icon: CandlestickChart },
@@ -448,12 +453,18 @@ export default function Home() {
     }
   };
 
-  const toggleAutomation = async () => {
+  const toggleAutomation = async (settings?: AutomationStartSettings) => {
     setTradingLoading(true);
     try {
       const nextAutomation = automation?.running
         ? await stopTradingAutomation()
-        : await startTradingAutomation(marketSymbol, marketInterval, marketExchange);
+        : await startTradingAutomation(
+            marketSymbol,
+            marketInterval,
+            marketExchange,
+            settings?.positionCount ?? automation?.position_count ?? 3,
+            settings?.allocationUsd ?? automation?.allocation_usd ?? portfolio?.cash ?? portfolio?.initial_equity ?? 10000
+          );
       setAutomation(nextAutomation);
       setLastTradingAction(nextAutomation.last_action);
       setLastTradingReason(nextAutomation.last_reason);
@@ -462,6 +473,7 @@ export default function Home() {
         message: nextAutomation.last_reason,
         tone: nextAutomation.running ? "paper" : "neutral"
       });
+      await loadTradingState();
     } catch (requestError) {
       appendAuditEvent({
         source: "Trading",
@@ -694,7 +706,7 @@ function TerminalSection(props: {
   onRefreshMarket: () => Promise<void>;
   onRefreshMarketList: () => Promise<void>;
   onRunTradingCycle: () => Promise<void>;
-  onToggleAutomation: () => Promise<void>;
+  onToggleAutomation: (settings?: AutomationStartSettings) => Promise<void>;
   onResetPortfolio: (initialEquity?: number) => Promise<void>;
   onRunBacktest: () => Promise<void>;
   onToggleTradingControl: () => Promise<void>;
@@ -1175,13 +1187,43 @@ function PaperTradingSection({
   lastSignal: TradingSignal | null;
   lastRiskDecision: RiskDecision | null;
   onRunTradingCycle: () => Promise<void>;
-  onToggleAutomation: () => Promise<void>;
+  onToggleAutomation: (settings?: AutomationStartSettings) => Promise<void>;
   onResetPortfolio: (initialEquity?: number) => Promise<void>;
   onRefreshAll: () => Promise<void>;
 }) {
   const halted = status?.trading_halted ?? true;
   const running = automation?.running ?? false;
   const [capitalInput, setCapitalInput] = useState("");
+  const [showStartDialog, setShowStartDialog] = useState(false);
+  const [positionCountInput, setPositionCountInput] = useState("3");
+  const [allocationInput, setAllocationInput] = useState("");
+  const [startDialogError, setStartDialogError] = useState<string | null>(null);
+
+  const openStartDialog = () => {
+    setPositionCountInput(String(automation?.position_count ?? 3));
+    setAllocationInput(String(automation?.allocation_usd || portfolio?.cash || portfolio?.initial_equity || 10000));
+    setStartDialogError(null);
+    setShowStartDialog(true);
+  };
+
+  const handleStartBot = async () => {
+    const positionCount = Number.parseInt(positionCountInput, 10);
+    const allocationUsd = Number(allocationInput.replace(",", "."));
+    if (!Number.isInteger(positionCount) || positionCount < 1 || positionCount > 50) {
+      setStartDialogError("Pozisyon sayısı 1 ile 50 arasında tam sayı olmalıdır.");
+      return;
+    }
+    if (!Number.isFinite(allocationUsd) || allocationUsd <= 0) {
+      setStartDialogError("Geçerli bir toplam dolar bütçesi girin.");
+      return;
+    }
+    if (portfolio && allocationUsd > portfolio.equity) {
+      setStartDialogError(`Bütçe mevcut bakiyeyi aşamaz (${formatMoney(portfolio.equity)}).`);
+      return;
+    }
+    setShowStartDialog(false);
+    await onToggleAutomation({ positionCount, allocationUsd });
+  };
 
   const handleCapitalReset = async () => {
     const amount = Number((capitalInput || String(portfolio?.initial_equity ?? "")).replace(",", "."));
@@ -1201,12 +1243,65 @@ function PaperTradingSection({
         title="Kağıt İşlem"
         description="Gerçek emir göndermeyen güvenli yürütme alanı"
         action={
-          <Button variant={running ? "danger" : "primary"} disabled={tradingLoading || halted} onClick={() => void onToggleAutomation()}>
+          <Button variant={running ? "danger" : "primary"} disabled={tradingLoading || halted} onClick={() => void (running ? onToggleAutomation() : openStartDialog())}>
             {running ? <PauseCircle className="h-4 w-4" aria-hidden="true" /> : <PlayCircle className="h-4 w-4" aria-hidden="true" />}
             {running ? "Botu Durdur" : "Botu Başlat"}
           </Button>
         }
       />
+      {showStartDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="automation-settings-title">
+          <section className="w-full max-w-md rounded-lg border border-line bg-panel p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="automation-settings-title" className="text-base font-black uppercase">Bot başlangıç ayarları</h2>
+                <p className="mt-1 text-xs text-textMuted">Pozisyon bütçesi eşit olarak dağıtılır.</p>
+              </div>
+              <button type="button" className="rounded-md p-1 text-textMuted hover:bg-panelMuted hover:text-textPrimary" onClick={() => setShowStartDialog(false)} aria-label="Pencereyi kapat">
+                <X className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="mt-5 grid gap-4">
+              <label className="grid gap-1 text-xs font-bold text-textMuted">
+                Açılacak pozisyon sayısı
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value={positionCountInput}
+                  onChange={(event) => setPositionCountInput(event.target.value)}
+                  className="h-10 rounded-md border border-line bg-background px-3 text-sm text-textPrimary outline-none focus:border-accent"
+                  autoFocus
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-bold text-textMuted">
+                Toplam pozisyon bütçesi (USD)
+                <input
+                  type="number"
+                  min="1"
+                  step="50"
+                  value={allocationInput}
+                  onChange={(event) => setAllocationInput(event.target.value)}
+                  className="h-10 rounded-md border border-line bg-background px-3 text-sm text-textPrimary outline-none focus:border-accent"
+                />
+              </label>
+              <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-textMuted">
+                Pozisyon başına eşit hedef: <span className="font-black text-textPrimary">{formatMoney((Number(allocationInput.replace(",", ".")) || 0) / Math.max(Number(positionCountInput) || 1, 1))}</span>
+              </div>
+              {startDialogError ? <p className="text-sm text-rose-200">{startDialogError}</p> : null}
+              <p className="text-xs leading-5 text-textMuted">Risk limitleri, stop-loss ve kullanılabilir nakit güvenlik sınırları yine uygulanır. Bu değer toplam bütçedir; bot yeni pozisyonlara eşit pay ayırır.</p>
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => setShowStartDialog(false)}>Vazgeç</Button>
+                <Button variant="primary" disabled={tradingLoading} onClick={() => void handleStartBot()}>
+                  <PlayCircle className="h-4 w-4" aria-hidden="true" />
+                  {tradingLoading ? "Başlatılıyor" : "Botu Çalıştır"}
+                </Button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {halted ? (
         <div className="rounded-md border border-amber/50 bg-amber/10 px-4 py-3 text-sm text-textMuted">
           Paper işlemler güvenlik nedeniyle duraklatıldı. Devam etmek için Ayarlar bölümünden paper modu sürdürün.
@@ -1235,6 +1330,8 @@ function PaperTradingSection({
             <StatusLine label="Başlangıç sermayesi" value={portfolio ? formatMoney(portfolio.initial_equity) : "-"} />
             <StatusLine label="Toplam bakiye" value={portfolio ? formatMoney(portfolio.equity) : "-"} />
             <StatusLine label="Paper cash" value={portfolio ? formatMoney(portfolio.cash) : "-"} />
+            <StatusLine label="Hedef pozisyon" value={automation ? `${automation.position_count} adet` : "-"} />
+            <StatusLine label="Eşit pozisyon bütçesi" value={automation ? `${formatMoney(automation.allocation_per_position_usd)} / adet` : "-"} />
             <StatusLine label="Günlük PnL" value={portfolio ? formatMoney(portfolio.daily_pnl) : "-"} />
           </div>
           <PositionsTable portfolio={portfolio} onRefreshAll={onRefreshAll} />

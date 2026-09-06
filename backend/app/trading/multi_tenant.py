@@ -111,6 +111,20 @@ async def execute_trading_step_for_user(
     service.risk_engine.settings.cooldown_after_losses = user.cooldown_after_losses
     service.settings.kill_switch_enabled = user.trading_halted
 
+    # Automation settings are persisted per user and applied on every worker
+    # cycle. The selected budget is divided equally across the requested
+    # number of positions; the risk engine still enforces its safety caps.
+    auto_state = get_or_create_automation_state(db, user)
+    service.position_count = max(1, auto_state.position_count)
+    service.risk_engine.settings.max_open_positions = min(
+        user.max_open_positions,
+        service.position_count,
+    )
+    service._set_allocation(
+        service.position_count,
+        auto_state.allocation_usd or max(portfolio.cash, 0.0),
+    )
+
     # Overwrite broker state
     service.broker = PaperBroker(
         initial_equity=portfolio.initial_equity,
@@ -124,7 +138,6 @@ async def execute_trading_step_for_user(
     )
     
     # Load Automation State
-    auto_state = get_or_create_automation_state(db, user)
     service.symbol = symbol or auto_state.symbol
     service.interval = interval or auto_state.interval
     service.exchange = exchange or auto_state.exchange

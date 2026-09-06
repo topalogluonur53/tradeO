@@ -256,6 +256,8 @@ class PaperBroker:
         settings: Settings,
         mark_price: float,
         mark_symbol: str | None = None,
+        max_total_exposure_value: float | None = None,
+        max_position_value: float | None = None,
     ) -> PortfolioSnapshot:
         state = self.snapshot(mark_price=mark_price, mark_symbol=mark_symbol)
         return PortfolioSnapshot(
@@ -266,6 +268,8 @@ class PaperBroker:
             peak_equity=state.peak_equity,
             consecutive_losses=state.consecutive_losses,
             available_cash=state.cash,
+            max_total_exposure_value=max_total_exposure_value,
+            max_position_value=max_position_value,
         )
 
 

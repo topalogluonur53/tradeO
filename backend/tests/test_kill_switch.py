@@ -70,3 +70,28 @@ def test_zero_cooldown_allows_a_valid_signal() -> None:
     )
 
     assert decision.approved is True
+
+
+def test_automation_allocation_caps_each_position_equally() -> None:
+    settings = get_settings()
+    settings.cooldown_after_losses = 0
+    settings.max_single_position_pct = 1.0
+    settings.max_total_exposure_pct = 1.0
+
+    decision = RiskEngine(settings).evaluate(
+        valid_signal(),
+        PortfolioSnapshot(
+            account_equity=10_000.0,
+            current_exposure=0.0,
+            open_positions=0,
+            daily_pnl=0.0,
+            peak_equity=10_000.0,
+            consecutive_losses=0,
+            available_cash=10_000.0,
+            max_total_exposure_value=1_000.0,
+            max_position_value=250.0,
+        ),
+    )
+
+    assert decision.approved is True
+    assert decision.notional_value <= 250.0

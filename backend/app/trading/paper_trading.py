@@ -51,6 +51,9 @@ class AutomationState(BaseModel):
     symbol: str
     interval: str
     exchange: str = "binance"
+    position_count: int = 3
+    allocation_usd: float = 0.0
+    allocation_per_position_usd: float = 0.0
     last_cycle_at: datetime | None = None
     last_action: str = "IDLE"
     last_reason: str = "Bot is stopped"
@@ -89,6 +92,9 @@ class PaperTradingService:
         self.symbol = settings.paper_default_symbol
         self.interval = settings.paper_default_interval
         self.exchange = "binance"
+        self.position_count = 3
+        self.allocation_usd = 0.0
+        self.allocation_per_position_usd = 0.0
         self.last_cycle_at: datetime | None = None
         self.last_action = "IDLE"
         self.last_reason = "Bot is stopped"
@@ -106,6 +112,9 @@ class PaperTradingService:
             symbol=self.symbol,
             interval=self.interval,
             exchange=self.exchange,
+            position_count=self.position_count,
+            allocation_usd=self.allocation_usd,
+            allocation_per_position_usd=self.allocation_per_position_usd,
             last_cycle_at=self.last_cycle_at,
             last_action=self.last_action,
             last_reason=self.last_reason,
@@ -158,10 +167,13 @@ class PaperTradingService:
         symbol: str | None = None,
         interval: str | None = None,
         exchange: str | None = None,
+        position_count: int | None = None,
+        allocation_usd: float | None = None,
     ) -> ActivationValidationSummary:
         selected_symbol = symbol or self.symbol
         selected_interval = interval or self.interval
         selected_exchange = normalize_exchange(exchange or self.exchange)
+        self._set_allocation(position_count, allocation_usd)
         validation_exchange = "binance" if selected_exchange == "all" else selected_exchange
         series = await self._load_candle_series(selected_symbol, selected_interval, validation_exchange)
         latest = series.candles[-1]
@@ -169,7 +181,13 @@ class PaperTradingService:
         validation_signal = signal.model_copy(update={"side": SignalSide.BUY})
         risk_decision = self.risk_engine.evaluate(
             validation_signal,
-            self.broker.portfolio_snapshot_for_risk(self.settings, latest.close, series.symbol),
+            self.broker.portfolio_snapshot_for_risk(
+                self.settings,
+                latest.close,
+                series.symbol,
+                max_total_exposure_value=self.allocation_usd or None,
+                max_position_value=self.allocation_per_position_usd or None,
+            ),
         )
         order_valid, order_reason = self.validator.validate(
             validation_signal,
@@ -322,7 +340,15 @@ class PaperTradingService:
                 item for item in scored if self.broker.has_open_position(item[0].symbol)
             ]
             buy_candidates = [item for item in scored if item[1].side is SignalSide.BUY]
-            if open_position_series:
+            current_open_count = len(self.broker.snapshot().open_positions)
+            fresh_buy_candidates = [
+                item for item in buy_candidates if not self.broker.has_open_position(item[0].symbol)
+            ]
+            if current_open_count < self.risk_engine.settings.max_open_positions and fresh_buy_candidates:
+                # Fill the user-selected position slots before spending cycles
+                # re-evaluating an already open symbol.
+                selected_series = max(fresh_buy_candidates, key=lambda item: self._signal_score(item[1]))[0]
+            elif open_position_series:
                 selected_series = max(open_position_series, key=lambda item: self._signal_score(item[1]))[0]
             elif buy_candidates:
                 selected_series = max(buy_candidates, key=lambda item: self._signal_score(item[1]))[0]
@@ -480,7 +506,13 @@ class PaperTradingService:
             else:
                 risk_decision = self.risk_engine.evaluate(
                     signal,
-                    self.broker.portfolio_snapshot_for_risk(self.settings, latest.close, series.symbol),
+                    self.broker.portfolio_snapshot_for_risk(
+                        self.settings,
+                        latest.close,
+                        series.symbol,
+                        max_total_exposure_value=self.allocation_usd or None,
+                        max_position_value=self.allocation_per_position_usd or None,
+                    ),
                 )
                 if risk_decision.approved:
                     valid, validation_reason = self.validator.validate(
@@ -517,6 +549,17 @@ class PaperTradingService:
             signal=signal,
             risk_decision=risk_decision,
             portfolio=self.broker.snapshot(mark_price=latest.close, mark_symbol=series.symbol),
+        )
+
+    def _set_allocation(self, position_count: int | None, allocation_usd: float | None) -> None:
+        if position_count is not None:
+            self.position_count = max(1, position_count)
+        if allocation_usd is not None:
+            self.allocation_usd = max(0.0, allocation_usd)
+        self.allocation_per_position_usd = (
+            self.allocation_usd / self.position_count
+            if self.allocation_usd > 0 and self.position_count > 0
+            else 0.0
         )
 
     def start(

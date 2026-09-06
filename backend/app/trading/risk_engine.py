@@ -14,6 +14,10 @@ class PortfolioSnapshot:
     peak_equity: float
     consecutive_losses: int
     available_cash: float | None = None
+    # Optional automation-level controls. When set, these cap total exposure
+    # and split the requested budget evenly between candidate positions.
+    max_total_exposure_value: float | None = None
+    max_position_value: float | None = None
 
 
 class RiskEngine:
@@ -61,9 +65,16 @@ class RiskEngine:
         risk_amount = portfolio.account_equity * self.settings.risk_per_trade
         quantity_by_risk = risk_amount / risk
         allocation_base = portfolio.available_cash if portfolio.available_cash is not None else portfolio.account_equity
-        max_position_value = max(0.0, allocation_base) * self.settings.max_single_position_pct
+        configured_position_cap = max(0.0, allocation_base) * self.settings.max_single_position_pct
+        max_position_value = configured_position_cap
+        if portfolio.max_position_value is not None:
+            max_position_value = min(configured_position_cap, max(0.0, portfolio.max_position_value))
         quantity_by_position_cap = max_position_value / signal.entry_price
-        max_total_value = portfolio.account_equity * self.settings.max_total_exposure_pct
+        max_total_value = (
+            max(0.0, portfolio.max_total_exposure_value)
+            if portfolio.max_total_exposure_value is not None
+            else portfolio.account_equity * self.settings.max_total_exposure_pct
+        )
         remaining_exposure = max(0.0, max_total_value - portfolio.current_exposure)
         quantity_by_exposure = remaining_exposure / signal.entry_price
 

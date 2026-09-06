@@ -176,6 +176,9 @@ export type AutomationState = {
   symbol: string;
   interval: string;
   exchange: string;
+  position_count: number;
+  allocation_usd: number;
+  allocation_per_position_usd: number;
   last_cycle_at: string | null;
   last_action: string;
   last_reason: string;
@@ -444,9 +447,12 @@ export function getTradingState(): Promise<TradingState> {
 export function getActivationValidation(
   symbol: string,
   interval: string,
-  exchange = "binance"
+  exchange = "binance",
+  positionCount = 3,
+  allocationUsd?: number
 ): Promise<ActivationValidationSummary> {
-  const params = new URLSearchParams({ symbol, interval, exchange });
+  const params = new URLSearchParams({ symbol, interval, exchange, position_count: String(positionCount) });
+  if (allocationUsd !== undefined) params.set("allocation_usd", String(allocationUsd));
   return request<ActivationValidationSummary>(`/api/trading/validation?${params.toString()}`);
 }
 
@@ -455,8 +461,15 @@ export function runTradingStep(symbol: string, interval: string, exchange = "bin
   return request<TradingCycleResult>(`/api/trading/step?${params.toString()}`, { method: "POST" });
 }
 
-export function startTradingAutomation(symbol: string, interval: string, exchange = "binance"): Promise<AutomationState> {
-  const params = new URLSearchParams({ symbol, interval, exchange });
+export function startTradingAutomation(
+  symbol: string,
+  interval: string,
+  exchange = "binance",
+  positionCount = 3,
+  allocationUsd?: number
+): Promise<AutomationState> {
+  const params = new URLSearchParams({ symbol, interval, exchange, position_count: String(positionCount) });
+  if (allocationUsd !== undefined) params.set("allocation_usd", String(allocationUsd));
   return request<AutomationState>(`/api/trading/automation/start?${params.toString()}`, { method: "POST" });
 }
 

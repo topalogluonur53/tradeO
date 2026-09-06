@@ -64,6 +64,9 @@ def trading_state(
             symbol=auto_state.symbol,
             interval=auto_state.interval,
             exchange=auto_state.exchange,
+            position_count=auto_state.position_count,
+            allocation_usd=auto_state.allocation_usd or portfolio.equity,
+            allocation_per_position_usd=(auto_state.allocation_usd or portfolio.equity) / max(auto_state.position_count, 1),
             last_cycle_at=auto_state.last_cycle_at,
             last_action=auto_state.last_action,
             last_reason=auto_state.last_reason,
@@ -117,6 +120,8 @@ async def activation_validation(
     symbol: str = Query(default="BTCUSDT", min_length=3, max_length=20),
     interval: str = Query(default="1h", min_length=2, max_length=3),
     exchange: str = Query(default="binance", min_length=2, max_length=12),
+    position_count: int = Query(default=3, ge=1, le=50),
+    allocation_usd: float | None = Query(default=None, gt=0.0, le=1_000_000_000.0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> ActivationValidationSummary:
@@ -126,6 +131,8 @@ async def activation_validation(
             symbol=symbol,
             interval=interval,
             exchange=exchange,
+            position_count=position_count,
+            allocation_usd=allocation_usd,
         )
     except (ValueError, MarketDataError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -152,14 +159,28 @@ async def start_automation(
     symbol: str = Query(default="BTCUSDT", min_length=3, max_length=20),
     interval: str = Query(default="1h", min_length=2, max_length=3),
     exchange: str = Query(default="binance", min_length=2, max_length=12),
+    position_count: int | None = Query(default=None, ge=1, le=50),
+    allocation_usd: float | None = Query(default=None, gt=0.0, le=1_000_000_000.0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> AutomationState:
+    auto_state = get_or_create_automation_state(db, current_user)
+    portfolio = get_or_create_portfolio(db, current_user)
+    selected_position_count = position_count or auto_state.position_count
+    selected_allocation = allocation_usd or auto_state.allocation_usd or portfolio.cash
+    if selected_allocation > portfolio.equity:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Toplam pozisyon bütçesi mevcut equity değerini aşamaz ({portfolio.equity:.2f} USD).",
+        )
+
     service = PaperTradingService(get_settings())
     validation = await service.validate_activation(
         symbol=symbol,
         interval=interval,
         exchange=exchange,
+        position_count=selected_position_count,
+        allocation_usd=selected_allocation,
     )
     if not validation.ready:
         failed = ", ".join(row.name for row in validation.rows if not row.passed)
@@ -168,12 +189,13 @@ async def start_automation(
             detail=f"Activation validation failed: {failed}",
         )
     
-    auto_state = get_or_create_automation_state(db, current_user)
     auto_state.enabled = True
     auto_state.running = True
     auto_state.symbol = symbol
     auto_state.interval = interval
     auto_state.exchange = exchange
+    auto_state.position_count = selected_position_count
+    auto_state.allocation_usd = selected_allocation
     auto_state.last_action = "AUTO_STARTED"
     auto_state.last_reason = "Paper automation loop started"
     db.commit()

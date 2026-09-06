@@ -70,6 +70,10 @@ class AutomationState(Base):
     symbol: Mapped[str] = mapped_column(String(50), default="BTCUSDT")
     interval: Mapped[str] = mapped_column(String(10), default="1h")
     exchange: Mapped[str] = mapped_column(String(50), default="binance")
+    # User-selected paper allocation. The total is split equally across the
+    # requested number of positions by the risk engine.
+    position_count: Mapped[int] = mapped_column(Integer, default=3)
+    allocation_usd: Mapped[float] = mapped_column(Float, default=0.0)
     last_cycle_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_action: Mapped[str] = mapped_column(String(100), default="IDLE")
     last_reason: Mapped[str] = mapped_column(String(255), default="Bot başlatılmadı.")
