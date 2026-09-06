@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -29,11 +31,18 @@ class BacktestSummary(BaseModel):
     symbol: str
     interval: str
     candles: int
+    initial_equity: float
     signals: int
     wins: int
     losses: int
     net_pnl: float
     ending_equity: float
+    return_pct: float
+    max_drawdown_pct: float
+    open_position_pnl: float
+    period_start: datetime | None
+    period_end: datetime | None
+    data_source: str
 
 
 class ResetPaperPortfolioRequest(BaseModel):
@@ -288,6 +297,7 @@ async def run_backtest(
     interval: str = Query(default="1h", min_length=2, max_length=3),
     limit: int = Query(default=300, ge=60, le=1000),
     exchange: str = Query(default="binance", min_length=2, max_length=12),
+    initial_equity: float | None = Query(default=None, gt=0.0, le=1_000_000_000.0),
 ) -> BacktestSummary:
     settings = get_settings()
     strategy = NexusAIStrategy()
@@ -315,7 +325,8 @@ async def run_backtest(
             exchange=selected_exchange,
         )
 
-    equity = settings.paper_initial_equity
+    starting_equity = initial_equity or settings.paper_initial_equity
+    equity = starting_equity
     position_entry: float | None = None
     stop_loss = 0.0
     take_profit = 0.0
@@ -324,6 +335,8 @@ async def run_backtest(
     wins = 0
     losses = 0
     net_pnl = 0.0
+    peak_equity = starting_equity
+    max_drawdown_pct = 0.0
 
     for index in range(30, len(series.candles)):
         window = series.candles[: index + 1]
@@ -359,13 +372,35 @@ async def run_backtest(
                     stop_loss = signal.stop_loss
                     take_profit = signal.take_profit
 
+        marked_equity = equity
+        if position_entry is not None:
+            marked_equity += (candle.close - position_entry) * quantity
+        peak_equity = max(peak_equity, marked_equity)
+        if peak_equity > 0:
+            max_drawdown_pct = max(max_drawdown_pct, (peak_equity - marked_equity) / peak_equity)
+
+    open_position_pnl = 0.0
+    if position_entry is not None and series.candles:
+        open_position_pnl = (series.candles[-1].close - position_entry) * quantity
+    total_pnl = net_pnl + open_position_pnl
+    ending_equity = equity + open_position_pnl
+    period_start = datetime.fromtimestamp(series.candles[0].open_time / 1000, tz=timezone.utc) if series.candles else None
+    period_end = datetime.fromtimestamp(series.candles[-1].close_time / 1000, tz=timezone.utc) if series.candles else None
+
     return BacktestSummary(
         symbol=series.symbol,
         interval=series.interval,
         candles=len(series.candles),
+        initial_equity=starting_equity,
         signals=signals,
         wins=wins,
         losses=losses,
-        net_pnl=net_pnl,
-        ending_equity=equity,
+        net_pnl=total_pnl,
+        ending_equity=ending_equity,
+        return_pct=(total_pnl / starting_equity) * 100 if starting_equity else 0.0,
+        max_drawdown_pct=max_drawdown_pct * 100,
+        open_position_pnl=open_position_pnl,
+        period_start=period_start,
+        period_end=period_end,
+        data_source=series.source,
     )

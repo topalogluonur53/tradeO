@@ -181,7 +181,7 @@ export default function Home() {
   const [backtestSummary, setBacktestSummary] = useState<BacktestSummary | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestSymbol, setBacktestSymbol] = useState("BTC/USDT");
-  const [backtestWindow, setBacktestWindow] = useState("90 gün");
+  const [backtestWindow, setBacktestWindow] = useState("2 hafta");
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([
     {
       id: "boot",
@@ -507,7 +507,17 @@ export default function Home() {
   const runBacktestNow = async () => {
     setBacktestLoading(true);
     try {
-      const summary = await runBacktest(backtestSymbol.replace("/", ""), marketInterval, 300, marketExchange);
+      const windowDays: Record<string, number> = { "1 hafta": 7, "2 hafta": 14, "30 gün": 30, "90 gün": 90 };
+      const intervalMinutes: Record<string, number> = { "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240, "6h": 360, "8h": 480, "12h": 720, "1d": 1440 };
+      const requestedCandles = Math.ceil((windowDays[backtestWindow] ?? 14) * 1440 / (intervalMinutes[marketInterval] ?? 60)) + 40;
+      const limit = Math.max(60, Math.min(1000, requestedCandles));
+      const summary = await runBacktest(
+        backtestSymbol.replace(/[/-]/g, ""),
+        marketInterval,
+        limit,
+        marketExchange,
+        portfolio?.initial_equity
+      );
       setBacktestSummary(summary);
       appendAuditEvent({
         source: "Backtest",
@@ -1117,6 +1127,8 @@ function StrategiesSection({
 function BacktestSection({
   backtestSymbol,
   backtestWindow,
+  marketSymbols,
+  portfolio,
   marketCandles,
   backtestSummary,
   backtestLoading,
@@ -1126,6 +1138,8 @@ function BacktestSection({
 }: {
   backtestSymbol: string;
   backtestWindow: string;
+  marketSymbols: MarketSymbol[];
+  portfolio: PaperPortfolio | null;
   marketCandles: MarketCandle[];
   backtestSummary: BacktestSummary | null;
   backtestLoading: boolean;
@@ -1133,13 +1147,29 @@ function BacktestSection({
   onBacktestSymbolChange: (value: string) => void;
   onBacktestWindowChange: (value: string) => void;
 }) {
+  const symbolOptions = Array.from(new Set([
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "DASH/USDT",
+    "ICP/USDT",
+    "ARB/USDT",
+    "FIL/USDT",
+    ...marketSymbols
+      .filter((item) => item.quote_asset === "USDT")
+      .map((item) => {
+        const normalized = item.symbol.replace(/[/-]/g, "").toUpperCase();
+        return normalized.endsWith("USDT") ? `${normalized.slice(0, -4)}/USDT` : item.symbol;
+      })
+  ])).sort();
+
   return (
     <div className="space-y-5">
       <SectionHeader icon={BarChart3} title="Geri Test" description="Walk-forward ve out-of-sample doğrulama hazırlığı" />
       <section className="grid gap-5 rounded-md border border-line bg-panel p-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className="grid gap-4">
-          <LabeledSelect label="Sembol" value={backtestSymbol} onChange={onBacktestSymbolChange} values={["BTC/USDT", "ETH/USDT", "SOL/USDT"]} />
-          <LabeledSelect label="Zaman Aralığı" value={backtestWindow} onChange={onBacktestWindowChange} values={["30 gün", "90 gün", "180 gün", "365 gün"]} />
+          <LabeledSelect label="Sembol" value={backtestSymbol} onChange={onBacktestSymbolChange} values={symbolOptions} />
+          <LabeledSelect label="Geriye dönük dönem" value={backtestWindow} onChange={onBacktestWindowChange} values={["1 hafta", "2 hafta", "30 gün", "90 gün"]} />
           <LabeledSelect label="Strateji" value="EMA + RSI" onChange={() => undefined} values={["EMA + RSI", "Donchian ATR", "Bollinger MR"]} />
           <Button variant="primary" disabled={backtestLoading} onClick={() => void onRunBacktest()}>
             <PlayCircle className="h-4 w-4" aria-hidden="true" />
@@ -1157,6 +1187,11 @@ function BacktestSection({
             <StatusLine label="Kazanç / Kayıp" value={backtestSummary ? `${backtestSummary.wins} / ${backtestSummary.losses}` : "-"} />
             <StatusLine label="Net PnL" value={backtestSummary ? formatMoney(backtestSummary.net_pnl) : "-"} />
             <StatusLine label="Bitiş equity" value={backtestSummary ? formatMoney(backtestSummary.ending_equity) : "-"} />
+            <StatusLine label="Getiri" value={backtestSummary ? formatPercentagePoints(backtestSummary.return_pct) : "-"} />
+            <StatusLine label="Maks. gerileme" value={backtestSummary ? formatPercentagePoints(-backtestSummary.max_drawdown_pct) : "-"} />
+            <StatusLine label="Açık pozisyon K/Z" value={backtestSummary ? formatMoney(backtestSummary.open_position_pnl) : "-"} />
+            <StatusLine label="Test edilen mum" value={backtestSummary ? `${backtestSummary.candles} (${backtestSummary.interval})` : "-"} />
+            <StatusLine label="Veri aralığı" value={backtestSummary?.period_start && backtestSummary.period_end ? `${formatTime(backtestSummary.period_start)} → ${formatTime(backtestSummary.period_end)}` : "-"} />
           </div>
         </div>
       </section>
@@ -2510,6 +2545,10 @@ function formatSignedPercent(value: number | undefined): string {
     return "-";
   }
   return new Intl.NumberFormat("tr-TR", { style: "percent", maximumFractionDigits: 2, signDisplay: "always" }).format(value);
+}
+
+function formatPercentagePoints(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 function formatPrice(value: number): string {

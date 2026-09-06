@@ -224,11 +224,18 @@ export type BacktestSummary = {
   symbol: string;
   interval: string;
   candles: number;
+  initial_equity: number;
   signals: number;
   wins: number;
   losses: number;
   net_pnl: number;
   ending_equity: number;
+  return_pct: number;
+  max_drawdown_pct: number;
+  open_position_pnl: number;
+  period_start: string | null;
+  period_end: string | null;
+  data_source: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -489,9 +496,11 @@ export function runBacktest(
   symbol: string,
   interval: string,
   limit = 1000,
-  exchange = "binance"
+  exchange = "binance",
+  initialEquity?: number
 ): Promise<BacktestSummary> {
   const params = new URLSearchParams({ symbol, interval, limit: String(limit), exchange });
+  if (initialEquity !== undefined) params.set("initial_equity", String(initialEquity));
   return request<BacktestSummary>(`/api/trading/backtest?${params.toString()}`);
 }
 
