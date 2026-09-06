@@ -99,10 +99,11 @@ class PaperBroker:
         self,
         mark_price: float | None = None,
         mark_symbol: str | None = None,
+        mark_prices: dict[str, float] | None = None,
     ) -> PaperPortfolioState:
         with self._lock:
             open_positions = [
-                self._position_with_mark(position, mark_price, mark_symbol)
+                self._position_with_mark(position, mark_price, mark_symbol, mark_prices)
                 for position in self._open_positions
             ]
             self._open_positions = open_positions
@@ -234,8 +235,13 @@ class PaperBroker:
         position: PaperPosition,
         mark_price: float | None,
         mark_symbol: str | None,
+        mark_prices: dict[str, float] | None = None,
     ) -> PaperPosition:
-        if mark_price is None or mark_symbol != position.symbol:
+        normalized_symbol = normalize_symbol(position.symbol)
+        ticker_price = mark_prices.get(normalized_symbol) if mark_prices else None
+        if ticker_price is not None and ticker_price > 0:
+            current_price = ticker_price
+        elif mark_price is None or normalize_symbol(mark_symbol or "") != normalized_symbol:
             current_price = position.current_price
         else:
             current_price = mark_price

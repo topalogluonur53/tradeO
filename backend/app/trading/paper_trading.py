@@ -103,6 +103,7 @@ class PaperTradingService:
         self._market_cursors: dict[tuple[str, str, str], int] = {}
         self._scan_cursor = 0
         self._recent_scan_symbols: list[str] = []
+        self._latest_ticker_prices: dict[str, float] = {}
         self._task: asyncio.Task[None] | None = None
 
     def automation_state(self) -> AutomationState:
@@ -356,6 +357,8 @@ class PaperTradingService:
                 selected_series = max(scored, key=lambda item: self._signal_score(item[1]))[0]
 
             result = self._execute_series(selected_series)
+            if self._latest_ticker_prices:
+                result.portfolio = self.broker.snapshot(mark_prices=self._latest_ticker_prices)
             scan_score = self._signal_score(result.signal) if result.signal else 0.0
             result.reason = (
                 f"Tarama tamamlandi: {len(candidates)} Binance/OKX adayi, "
@@ -396,6 +399,11 @@ class PaperTradingService:
             *await self._load_scan_tickers("binance"),
             *await self._load_scan_tickers("okx"),
         ]
+        self._latest_ticker_prices = {
+            ticker.symbol.replace("-", "").upper(): ticker.last_price
+            for ticker in tickers
+            if ticker.last_price > 0
+        }
         return self._rank_scan_candidates(tickers, selected_symbol)
 
     async def _load_scan_tickers(self, exchange: str) -> list[MarketTicker]:
