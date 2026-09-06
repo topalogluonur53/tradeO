@@ -1191,7 +1191,7 @@ function BacktestSection({
             <StatusLine label="Maks. gerileme" value={backtestSummary ? formatPercentagePoints(-backtestSummary.max_drawdown_pct) : "-"} />
             <StatusLine label="Açık pozisyon K/Z" value={backtestSummary ? formatMoney(backtestSummary.open_position_pnl) : "-"} />
             <StatusLine label="Test edilen mum" value={backtestSummary ? `${backtestSummary.candles} (${backtestSummary.interval})` : "-"} />
-            <StatusLine label="Veri aralığı" value={backtestSummary?.period_start && backtestSummary.period_end ? `${formatTime(backtestSummary.period_start)} → ${formatTime(backtestSummary.period_end)}` : "-"} />
+            <StatusLine label="Veri aralığı" value={backtestSummary?.period_start && backtestSummary.period_end ? `${formatFullDateTime(backtestSummary.period_start)} → ${formatFullDateTime(backtestSummary.period_end)}` : "-"} />
           </div>
         </div>
       </section>
