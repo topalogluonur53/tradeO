@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 import json
 
@@ -36,6 +36,10 @@ class BacktestSummary(BaseModel):
     ending_equity: float
 
 
+class ResetPaperPortfolioRequest(BaseModel):
+    initial_equity: float | None = Field(default=None, gt=0.0, le=1_000_000_000.0)
+
+
 @router.get("/state", response_model=TradingStateResponse)
 def trading_state(
     current_user: User = Depends(get_current_user),
@@ -67,6 +71,7 @@ def trading_state(
             last_risk_decision=last_risk
         ),
         portfolio=PaperPortfolioState(
+            initial_equity=portfolio.initial_equity,
             cash=portfolio.cash,
             equity=portfolio.equity,
             peak_equity=portfolio.peak_equity,
@@ -172,6 +177,23 @@ async def start_automation(
     auto_state.last_action = "AUTO_STARTED"
     auto_state.last_reason = "Paper automation loop started"
     db.commit()
+
+    # Run the first dynamic scan immediately. The standalone worker keeps
+    # scanning afterwards, but the user should not have to wait for its next
+    # 30-second interval to see the bot react.
+    try:
+        await execute_trading_step_for_user(
+            db=db,
+            user=current_user,
+            symbol=symbol,
+            interval=interval,
+            exchange="all",
+        )
+    except (ValueError, MarketDataError) as exc:
+        auto_state.last_action = "AUTO_ERROR"
+        auto_state.last_reason = str(exc)
+        db.commit()
+
     
     return trading_state(current_user, db).automation
 
@@ -209,14 +231,21 @@ async def close_all_positions_endpoint(
 
 @router.post("/reset", response_model=PaperPortfolioState)
 def reset_paper_portfolio(
+    payload: ResetPaperPortfolioRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> PaperPortfolioState:
     settings = get_settings()
     portfolio = get_or_create_portfolio(db, current_user)
-    portfolio.cash = settings.paper_initial_equity
-    portfolio.equity = settings.paper_initial_equity
-    portfolio.peak_equity = settings.paper_initial_equity
+    initial_equity = (
+        payload.initial_equity
+        if payload and payload.initial_equity is not None
+        else portfolio.initial_equity or settings.paper_initial_equity
+    )
+    portfolio.initial_equity = initial_equity
+    portfolio.cash = initial_equity
+    portfolio.equity = initial_equity
+    portfolio.peak_equity = initial_equity
     portfolio.current_exposure = 0.0
     portfolio.daily_pnl = 0.0
     portfolio.consecutive_losses = 0

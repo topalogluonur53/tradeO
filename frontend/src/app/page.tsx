@@ -473,10 +473,10 @@ export default function Home() {
     }
   };
 
-  const resetPortfolio = async () => {
+  const resetPortfolio = async (initialEquity?: number) => {
     setTradingLoading(true);
     try {
-      const nextPortfolio = await resetPaperPortfolio();
+      const nextPortfolio = await resetPaperPortfolio(initialEquity);
       setPortfolio(nextPortfolio);
       setLastTradingAction("RESET");
       setLastTradingReason("Paper portföy sıfırlandı.");
@@ -695,7 +695,7 @@ function TerminalSection(props: {
   onRefreshMarketList: () => Promise<void>;
   onRunTradingCycle: () => Promise<void>;
   onToggleAutomation: () => Promise<void>;
-  onResetPortfolio: () => Promise<void>;
+  onResetPortfolio: (initialEquity?: number) => Promise<void>;
   onRunBacktest: () => Promise<void>;
   onToggleTradingControl: () => Promise<void>;
   onMarketSymbolChange: (symbol: string, exchange?: string) => void;
@@ -830,7 +830,7 @@ function Dashboard({
     <div className="space-y-5">
       {/* --- Kompakt Özet Kutucukları --- */}
       {portfolio && (() => {
-        const initialEquity = 10_000;
+        const initialEquity = portfolio.initial_equity;
         const totalPnl = portfolio.equity - initialEquity;
         const totalPnlPct = totalPnl / initialEquity;
         const dailyPnl = portfolio.daily_pnl;
@@ -849,6 +849,11 @@ function Dashboard({
               <p className={`mt-1 text-xs font-semibold ${totalPnl >= 0 ? 'text-emerald-400/70' : 'text-rose-400/70'}`}>
                 {totalPnl >= 0 ? '▲' : '▼'} {formatSignedPercent(totalPnlPct)} (Bakiye: {formatMoney(portfolio.equity)})
               </p>
+            </div>
+            <div className="rounded-lg border border-line bg-panel p-4">
+              <p className="text-xs font-bold uppercase text-textMuted">Toplam Bakiye</p>
+              <p className="mt-2 text-2xl font-black tracking-tight text-textPrimary">{formatMoney(portfolio.equity)}</p>
+              <p className="mt-1 text-xs text-textMuted">Başlangıç: {formatMoney(initialEquity)}</p>
             </div>
             <div className={`rounded-lg border p-4 ${dailyPnl >= 0 ? 'border-emerald-500/30 bg-emerald-500/8' : 'border-rose-500/30 bg-rose-500/8'}`}>
               <p className="text-xs font-bold uppercase text-textMuted">Günlük Kâr / Zarar</p>
@@ -1171,11 +1176,24 @@ function PaperTradingSection({
   lastRiskDecision: RiskDecision | null;
   onRunTradingCycle: () => Promise<void>;
   onToggleAutomation: () => Promise<void>;
-  onResetPortfolio: () => Promise<void>;
+  onResetPortfolio: (initialEquity?: number) => Promise<void>;
   onRefreshAll: () => Promise<void>;
 }) {
   const halted = status?.trading_halted ?? true;
   const running = automation?.running ?? false;
+  const [capitalInput, setCapitalInput] = useState("");
+
+  const handleCapitalReset = async () => {
+    const amount = Number((capitalInput || String(portfolio?.initial_equity ?? "")).replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Geçerli bir sanal sermaye tutarı girin.");
+      return;
+    }
+    if (!confirm(`${formatMoney(amount)} sanal sermaye ile portföy sıfırlansın mı? Açık pozisyonlar ve işlem geçmişi silinir.`)) {
+      return;
+    }
+    await onResetPortfolio(amount);
+  };
   return (
     <div className="space-y-5">
       <SectionHeader
@@ -1214,8 +1232,9 @@ function PaperTradingSection({
             <StatusLine label="Otomasyon" value={running ? "Çalışıyor" : "Kapalı"} />
             <StatusLine label="Son aksiyon" value={lastTradingAction} />
             <StatusLine label="Son neden" value={lastTradingReason} />
+            <StatusLine label="Başlangıç sermayesi" value={portfolio ? formatMoney(portfolio.initial_equity) : "-"} />
+            <StatusLine label="Toplam bakiye" value={portfolio ? formatMoney(portfolio.equity) : "-"} />
             <StatusLine label="Paper cash" value={portfolio ? formatMoney(portfolio.cash) : "-"} />
-            <StatusLine label="Paper equity" value={portfolio ? formatMoney(portfolio.equity) : "-"} />
             <StatusLine label="Günlük PnL" value={portfolio ? formatMoney(portfolio.daily_pnl) : "-"} />
           </div>
           <PositionsTable portfolio={portfolio} onRefreshAll={onRefreshAll} />
@@ -1237,6 +1256,24 @@ function PaperTradingSection({
             <RefreshCw className={`h-4 w-4 ${tradingLoading ? "animate-spin" : ""}`} aria-hidden="true" />
             Tek döngü çalıştır
           </Button>
+          <div className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-panelMuted/40 p-3">
+            <label className="grid gap-1 text-xs font-bold text-textMuted">
+              Yeni sanal sermaye (USD)
+              <input
+                type="number"
+                min="1"
+                step="100"
+                value={capitalInput}
+                placeholder={portfolio ? String(portfolio.initial_equity) : "10000"}
+                onChange={(event) => setCapitalInput(event.target.value)}
+                className="h-9 w-44 rounded-md border border-line bg-panel px-3 text-sm text-textPrimary outline-none focus:border-accent"
+                disabled={tradingLoading || running}
+              />
+            </label>
+            <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void handleCapitalReset()}>
+              Sermayeyi uygula ve sıfırla
+            </Button>
+          </div>
           <Button variant="secondary" disabled={tradingLoading || running} onClick={() => void onResetPortfolio()}>
             Portföyü sıfırla
           </Button>
@@ -1726,9 +1763,9 @@ function BotStatus({
 type EditableRiskLimits = Omit<RiskLimits, "stop_loss_required">;
 
 const defaultRiskLimitFormData: EditableRiskLimits = {
-  risk_per_trade: 0.005,
-  max_single_position_pct: 0.1,
-  max_total_exposure_pct: 0.3,
+  risk_per_trade: 0.05,
+  max_single_position_pct: 0.5,
+  max_total_exposure_pct: 1.0,
   max_open_positions: 3,
   daily_loss_limit_pct: 0.02,
   max_drawdown_limit_pct: 0.08,
@@ -1782,7 +1819,7 @@ function validateRiskLimitForm(formData: EditableRiskLimits): string | null {
   }
 
   if (formData.max_single_position_pct <= 0 || formData.max_single_position_pct > 1) {
-    return "Maksimum pozisyon oranı 0 ile %100 arasında olmalı.";
+    return "İşlem başına bakiye kullanım oranı 0 ile %100 arasında olmalı.";
   }
 
   if (formData.max_total_exposure_pct < formData.max_single_position_pct || formData.max_total_exposure_pct > 1) {
@@ -1851,6 +1888,15 @@ function RiskPanel({
     setIsEditing(false);
   };
 
+  const setAllocationPreset = (value: number) => {
+    setFormError(null);
+    setFormData((prev) => ({
+      ...prev,
+      max_single_position_pct: value,
+      max_total_exposure_pct: Math.max(prev.max_total_exposure_pct, value)
+    }));
+  };
+
   const handleSave = async () => {
     const validationError = validateRiskLimitForm(formData);
     if (validationError) {
@@ -1894,7 +1940,7 @@ function RiskPanel({
         {!isEditing ? (
           <>
             <StatusLine label="İşlem başına risk" value={formatPercent(limits?.risk_per_trade)} />
-            <StatusLine label="Maks. pozisyon" value={formatPercent(limits?.max_single_position_pct)} />
+            <StatusLine label="İşlem başına bakiye kullanımı" value={formatPercent(limits?.max_single_position_pct)} />
             <StatusLine label="Maks. maruziyet" value={formatPercent(limits?.max_total_exposure_pct)} />
             <StatusLine label="Açık pozisyon sınırı" value={limits ? String(limits.max_open_positions) : "-"} />
             <StatusLine label="Günlük zarar limiti" value={formatPercent(limits?.daily_loss_limit_pct)} />
@@ -1923,8 +1969,33 @@ function RiskPanel({
               <input type="number" min="0.001" max="0.05" step="0.001" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.risk_per_trade} onChange={(e) => handleChange("risk_per_trade", e.target.value)} />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-textMuted">Maks. pozisyon (örn: 0.05)</label>
-              <input type="number" min="0.01" max="1" step="0.01" className="w-full rounded-md border border-line bg-background px-3 py-1.5 text-sm" value={formData.max_single_position_pct} onChange={(e) => handleChange("max_single_position_pct", e.target.value)} />
+              <label className="mb-1 block text-xs text-textMuted">İşlem başına bakiye kullanımı (örn: %50)</label>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-bold text-textMuted">İşlem başına bakiye kullanımı</span>
+                <span className="text-sm font-black text-accent">{formatPercent(formData.max_single_position_pct)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.05"
+                max="1"
+                step="0.05"
+                className="mt-3 w-full accent-accent"
+                value={formData.max_single_position_pct}
+                onChange={(e) => handleChange("max_single_position_pct", e.target.value)}
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[0.1, 0.25, 0.5, 0.75, 1].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setAllocationPreset(value)}
+                    className={`rounded-md border px-2 py-1 text-xs font-bold transition ${formData.max_single_position_pct === value ? "border-accent bg-accent/20 text-accent" : "border-line bg-panelMuted text-textMuted hover:border-accent/50"}`}
+                  >
+                    {formatPercent(value)}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-textMuted">Bot tek işlemde portföy bakiyesinin bu oranından fazlasını kullanmaz.</p>
             </div>
             <div>
               <label className="mb-1 block text-xs text-textMuted">Maks. maruziyet (örn: 0.2)</label>

@@ -28,12 +28,21 @@ async def run_trading_worker():
                             # The service fetches live tickers from Binance and
                             # OKX, filters invalid/leveraged/stable pairs, and
                             # rotates through the complete eligible universe.
-                            await execute_trading_step_for_user(
+                            result = await execute_trading_step_for_user(
                                 db=db,
                                 user=user,
                                 symbol=state.symbol,
                                 interval=state.interval,
                                 exchange="all",
+                            )
+                            logger.info(
+                                "paper_scan_cycle",
+                                extra={
+                                    "user_id": user.id,
+                                    "action": result.action,
+                                    "symbol": result.signal.symbol if result.signal else state.symbol,
+                                    "reason": result.reason,
+                                },
                             )
                         except Exception as e:
                             logger.error(f"Error executing step for user {user.id}: {e}", exc_info=True)

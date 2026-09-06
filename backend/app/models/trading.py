@@ -9,6 +9,7 @@ class PaperPortfolio(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    initial_equity: Mapped[float] = mapped_column(Float, nullable=False, default=10_000.0)
     cash: Mapped[float] = mapped_column(Float, nullable=False)
     equity: Mapped[float] = mapped_column(Float, nullable=False)
     peak_equity: Mapped[float] = mapped_column(Float, nullable=False)

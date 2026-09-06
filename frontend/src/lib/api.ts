@@ -159,6 +159,7 @@ export type PaperTrade = {
 };
 
 export type PaperPortfolio = {
+  initial_equity: number;
   cash: number;
   equity: number;
   peak_equity: number;
@@ -463,8 +464,12 @@ export function stopTradingAutomation(): Promise<AutomationState> {
   return request<AutomationState>("/api/trading/automation/stop", { method: "POST" });
 }
 
-export function resetPaperPortfolio(): Promise<PaperPortfolio> {
-  return request<PaperPortfolio>("/api/trading/reset", { method: "POST" });
+export function resetPaperPortfolio(initialEquity?: number): Promise<PaperPortfolio> {
+  return request<PaperPortfolio>("/api/trading/reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: initialEquity === undefined ? undefined : JSON.stringify({ initial_equity: initialEquity })
+  });
 }
 
 export function runBacktest(

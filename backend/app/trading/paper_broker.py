@@ -44,6 +44,7 @@ class PaperTrade(BaseModel):
 
 
 class PaperPortfolioState(BaseModel):
+    initial_equity: float = 10_000.0
     cash: float
     equity: float
     peak_equity: float
@@ -110,6 +111,7 @@ class PaperBroker:
             equity = self._cash + market_value
             self._peak_equity = max(self._peak_equity, equity)
             return PaperPortfolioState(
+                initial_equity=self._initial_equity,
                 cash=self._cash,
                 equity=equity,
                 peak_equity=self._peak_equity,
@@ -263,6 +265,7 @@ class PaperBroker:
             daily_pnl=state.daily_pnl,
             peak_equity=state.peak_equity,
             consecutive_losses=state.consecutive_losses,
+            available_cash=state.cash,
         )
 
 

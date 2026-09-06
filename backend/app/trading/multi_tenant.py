@@ -17,6 +17,7 @@ def get_or_create_portfolio(db: Session, user: User) -> PaperPortfolio:
         settings = get_settings()
         portfolio = PaperPortfolio(
             user_id=user.id,
+            initial_equity=settings.paper_initial_equity,
             cash=settings.paper_initial_equity,
             equity=settings.paper_initial_equity,
             peak_equity=settings.paper_initial_equity,
@@ -112,7 +113,7 @@ async def execute_trading_step_for_user(
 
     # Overwrite broker state
     service.broker = PaperBroker(
-        initial_equity=settings.paper_initial_equity,
+        initial_equity=portfolio.initial_equity,
         cash=portfolio.cash,
         peak_equity=portfolio.peak_equity,
         open_positions=open_positions,
@@ -217,7 +218,7 @@ async def close_position_for_user(db: Session, user: User, position_id: str):
     
     service = PaperTradingService(settings)
     service.broker = PaperBroker(
-        initial_equity=settings.paper_initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
+        initial_equity=portfolio.initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
         open_positions=open_positions, closed_trades=closed_trades, consecutive_losses=portfolio.consecutive_losses
     )
     result = service.close_position(position_id)
@@ -252,7 +253,7 @@ async def close_all_positions_for_user(db: Session, user: User):
     
     service = PaperTradingService(settings)
     service.broker = PaperBroker(
-        initial_equity=settings.paper_initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
+        initial_equity=portfolio.initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
         open_positions=open_positions, closed_trades=closed_trades, consecutive_losses=portfolio.consecutive_losses
     )
     result = service.close_all_positions()
@@ -263,4 +264,3 @@ async def close_all_positions_for_user(db: Session, user: User):
     auto_state.last_reason = result.reason
     db.commit()
     return result
-

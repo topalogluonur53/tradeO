@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     paper_default_interval: str = "1h"
 
     risk_per_trade: float = 0.005
-    max_single_position_pct: float = 0.10
-    max_total_exposure_pct: float = 0.30
+    max_single_position_pct: float = 0.50
+    max_total_exposure_pct: float = 1.00
     max_open_positions: int = 3
     daily_loss_limit_pct: float = 0.02
     max_drawdown_limit_pct: float = 0.08

@@ -13,6 +13,7 @@ class PortfolioSnapshot:
     daily_pnl: float
     peak_equity: float
     consecutive_losses: int
+    available_cash: float | None = None
 
 
 class RiskEngine:
@@ -54,7 +55,8 @@ class RiskEngine:
 
         risk_amount = portfolio.account_equity * self.settings.risk_per_trade
         quantity_by_risk = risk_amount / risk
-        max_position_value = portfolio.account_equity * self.settings.max_single_position_pct
+        allocation_base = portfolio.available_cash if portfolio.available_cash is not None else portfolio.account_equity
+        max_position_value = max(0.0, allocation_base) * self.settings.max_single_position_pct
         quantity_by_position_cap = max_position_value / signal.entry_price
         max_total_value = portfolio.account_equity * self.settings.max_total_exposure_pct
         remaining_exposure = max(0.0, max_total_value - portfolio.current_exposure)

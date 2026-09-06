@@ -1,4 +1,5 @@
 import asyncio
+import math
 from contextlib import suppress
 from datetime import UTC, datetime
 
@@ -16,7 +17,7 @@ from app.trading.schemas import RiskDecision, Signal, SignalSide
 from app.trading.strategy_engine import NexusAIStrategy
 
 
-SCAN_CANDIDATE_LIMIT = 8
+SCAN_CANDIDATE_LIMIT = 12
 PAPER_MARKET_CURSOR_STEP = 4
 # Zero means that every eligible live USDT ticker is part of the rotating
 # universe. Only SCAN_CANDIDATE_LIMIT candles are fetched per cycle so the
@@ -295,8 +296,6 @@ class PaperTradingService:
 
     async def _step_scan_all(self, symbol: str, interval: str) -> TradingCycleResult:
         candidates = await self._scan_candidates(symbol)
-        best_result: TradingCycleResult | None = None
-        last_rejected: TradingCycleResult | None = None
         series_results = await asyncio.gather(
             *[
                 self._load_candle_series(
@@ -310,33 +309,32 @@ class PaperTradingService:
             return_exceptions=True,
         )
 
-        for series in series_results:
-            if isinstance(series, Exception):
-                continue
+        valid_series = [series for series in series_results if not isinstance(series, Exception)]
+        if valid_series:
+            # Score every candle set first, then execute only the strongest
+            # opportunity. This avoids opening the first BUY in ticker order
+            # while a better setup is still in the same scan window.
+            scored = [
+                (series, self.strategy.generate_signal(series.symbol, series.candles))
+                for series in valid_series
+            ]
+            open_position_series = [
+                item for item in scored if self.broker.has_open_position(item[0].symbol)
+            ]
+            buy_candidates = [item for item in scored if item[1].side is SignalSide.BUY]
+            if open_position_series:
+                selected_series = max(open_position_series, key=lambda item: self._signal_score(item[1]))[0]
+            elif buy_candidates:
+                selected_series = max(buy_candidates, key=lambda item: self._signal_score(item[1]))[0]
+            else:
+                selected_series = max(scored, key=lambda item: self._signal_score(item[1]))[0]
 
-            result = self._execute_series(series)
-
-            if result.action in {"POSITION_CLOSED", "PAPER_POSITION_OPENED"}:
-                self.exchange = "all"
-                if result.signal:
-                    self._remember_scan_symbol(result.signal.symbol)
-                return result
-
-            if result.action in {"RISK_REJECTED", "ORDER_REJECTED", "INSUFFICIENT_PAPER_CASH"}:
-                last_rejected = result
-
-            if result.signal and (
-                best_result is None
-                or not best_result.signal
-                or result.signal.confidence > best_result.signal.confidence
-            ):
-                best_result = result
-
-        result = last_rejected or best_result
-        if result:
+            result = self._execute_series(selected_series)
+            scan_score = self._signal_score(result.signal) if result.signal else 0.0
             result.reason = (
-                f"Tarama tamamlandi: {len(candidates)} Binance/OKX adayinda emir acilmadi. "
-                f"En iyi aday {result.signal.symbol if result.signal else symbol}: {result.reason}"
+                f"Tarama tamamlandi: {len(candidates)} Binance/OKX adayi, "
+                f"{len(valid_series)} mum verisi. En iyi aday {result.signal.symbol if result.signal else symbol}: "
+                f"{result.reason} (firsat skoru {scan_score:.2f})"
             )
             self.last_action = result.action
             self.last_reason = result.reason
@@ -357,6 +355,15 @@ class PaperTradingService:
         self.last_reason = result.reason
         self.exchange = "all"
         return result
+
+    @staticmethod
+    def _signal_score(signal: Signal) -> float:
+        """Rank setups without weakening the strategy or risk gates."""
+        filters = signal.filters
+        passed_ratio = sum(item.passed for item in filters) / max(len(filters), 1)
+        side_bonus = 1.0 if signal.side is SignalSide.BUY else 0.0
+        regime_bonus = 0.10 if signal.market_regime.value in {"TRENDING_UP", "UNCERTAIN"} else 0.0
+        return (side_bonus * 2.0) + (signal.confidence * 0.60) + (passed_ratio * 0.30) + regime_bonus
 
     async def _scan_candidates(self, selected_symbol: str) -> list[MarketTicker]:
         tickers = [
@@ -398,12 +405,23 @@ class PaperTradingService:
                 if self._is_scan_candidate(ticker)
             ]
 
+        max_volume = max((math.log1p(item.quote_volume) for item in candidates), default=1.0)
+        max_trades = max((math.log1p(item.trade_count) for item in candidates), default=1.0)
+
+        def market_priority(item: MarketTicker) -> float:
+            liquidity = math.log1p(item.quote_volume) / max_volume if max_volume else 0.0
+            activity = math.log1p(item.trade_count) / max_trades if max_trades else 0.0
+            # Positive 24h momentum gets priority, but extreme pumps are not
+            # allowed to dominate the scan by themselves.
+            momentum = max(0.0, min(1.0, 0.5 + (item.price_change_percent / 20.0)))
+            return (liquidity * 0.55) + (momentum * 0.30) + (activity * 0.15)
+
         prioritized = sorted(
             candidates,
             key=lambda item: (
                 not self.broker.has_open_position(item.symbol),
                 item.symbol.replace("-", "").upper() != selected_normalized,
-                -item.quote_volume,
+                -market_priority(item),
             ),
         )
         if SCAN_UNIVERSE_LIMIT > 0:
