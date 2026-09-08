@@ -1,4 +1,5 @@
 from typing import Any
+import time
 
 import httpx
 
@@ -70,6 +71,7 @@ def parse_kline(symbol: str, interval: str, row: list[Any]) -> Candle:
         close_time=int(row[6]),
         quote_volume=float(row[7]),
         trade_count=int(row[8]),
+        is_closed=int(row[6]) <= int(time.time() * 1000),
     )
 
 

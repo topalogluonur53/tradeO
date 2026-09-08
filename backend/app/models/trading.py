@@ -37,6 +37,7 @@ class PaperPosition(Base):
     unrealized_pnl_pct: Mapped[float] = mapped_column(Float, nullable=False)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     strategy: Mapped[str] = mapped_column(String(100), nullable=False)
+    entry_fee: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     portfolio = relationship("PaperPortfolio", back_populates="open_positions")
 
@@ -56,6 +57,7 @@ class PaperTrade(Base):
     closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     exit_reason: Mapped[str] = mapped_column(String(255), nullable=False)
     strategy: Mapped[str] = mapped_column(String(100), nullable=False)
+    fees_paid: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     portfolio = relationship("PaperPortfolio", back_populates="closed_trades")
 

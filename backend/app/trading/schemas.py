@@ -19,6 +19,19 @@ class SignalSide(StrEnum):
     HOLD = "HOLD"
 
 
+class PatternDirection(StrEnum):
+    BULLISH = "BULLISH"
+    BEARISH = "BEARISH"
+    NEUTRAL = "NEUTRAL"
+
+
+class PricePattern(BaseModel):
+    key: str
+    label: str
+    direction: PatternDirection
+    strength: float = Field(ge=0.0, le=1.0)
+
+
 class SignalFilter(BaseModel):
     key: str
     label: str
@@ -40,6 +53,7 @@ class Signal(BaseModel):
     explanation: str
     indicators: dict[str, float] = Field(default_factory=dict)
     filters: list[SignalFilter] = Field(default_factory=list)
+    patterns: list[PricePattern] = Field(default_factory=list)
 
 
 class RiskDecision(BaseModel):

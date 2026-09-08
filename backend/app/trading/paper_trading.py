@@ -9,7 +9,7 @@ from app.core.config import Settings, get_settings
 from app.market_data.binance import BinanceMarketDataClient, MarketDataError, normalize_exchange
 from app.market_data.offline import build_offline_candles, build_offline_tickers
 from app.market_data.okx import OkxMarketDataClient
-from app.market_data.schemas import CandleSeries, MarketTicker
+from app.market_data.schemas import Candle, CandleSeries, MarketTicker
 from app.trading.order_validator import OrderValidationContext, OrderValidator
 from app.trading.paper_broker import PaperBroker, TradingCycleResult, create_default_broker
 from app.trading.risk_engine import RiskEngine
@@ -138,7 +138,10 @@ class PaperTradingService:
             return await self._step_scan_all(selected_symbol, selected_interval)
 
         series = await self._load_candle_series(selected_symbol, selected_interval, selected_exchange)
-        return self._execute_series(series)
+        return self._execute_series(
+            self._prepare_series(series),
+            execution_candle=series.candles[-1],
+        )
 
     def close_position(self, position_id: str) -> TradingCycleResult:
         trade = self.broker.close_position(position_id)
@@ -178,7 +181,18 @@ class PaperTradingService:
         selected_exchange = normalize_exchange(exchange or self.exchange)
         self._set_allocation(position_count, allocation_usd)
         validation_exchange = "binance" if selected_exchange == "all" else selected_exchange
-        series = await self._load_candle_series(selected_symbol, selected_interval, validation_exchange)
+        series = await self._load_candle_series(
+            selected_symbol,
+            selected_interval,
+            validation_exchange,
+        )
+        if selected_exchange == "all" and not self._is_executable_series(series):
+            series = await self._load_candle_series(
+                selected_symbol,
+                selected_interval,
+                "okx",
+            )
+        series = self._prepare_series(series)
         latest = series.candles[-1]
         signal = self.strategy.generate_signal(series.symbol, series.candles)
         validation_signal = signal.model_copy(update={"side": SignalSide.BUY})
@@ -210,6 +224,14 @@ class PaperTradingService:
         strategy_ready = signal.strategy == self.strategy.name and bool(signal.filters)
 
         rows = [
+            self._validation_row(
+                key="market_data",
+                name="Canli Piyasa Verisi",
+                passed=self._is_executable_series(series),
+                market_regime=signal.market_regime.value,
+                actual=series.source,
+                required="Canli borsa verisi",
+            ),
             self._validation_row(
                 key="ema_rsi",
                 name="EMA + RSI",
@@ -330,18 +352,27 @@ class PaperTradingService:
             return_exceptions=True,
         )
 
-        valid_series = [series for series in series_results if not isinstance(series, Exception)]
+        raw_series = [
+            series
+            for series in series_results
+            if not isinstance(series, Exception) and self._is_executable_series(series)
+        ]
+        valid_series = [self._prepare_series(series) for series in raw_series]
         if valid_series:
             candle_mark_prices = {
-                series.symbol.replace("-", "").upper(): series.candles[-1].close
-                for series in valid_series
+                series.symbol.upper().strip(): series.candles[-1].close
+                for series in raw_series
+            }
+            execution_candles = {
+                (series.exchange, series.symbol): series.candles[-1]
+                for series in raw_series
             }
             # Every open position must receive a stop/take-profit check in a
             # scan. Previously only the one selected candidate was evaluated,
             # so positions outside the 12-symbol window could remain open
             # indefinitely.
             closed_trades = []
-            for series in valid_series:
+            for series in raw_series:
                 closed_trades.extend(self.broker.evaluate_existing_positions(series.candles[-1]))
 
             # Score every candle set first, then execute only the strongest
@@ -354,12 +385,20 @@ class PaperTradingService:
             open_position_series = [
                 item for item in scored if self.broker.has_exact_open_position(item[0].symbol)
             ]
+            exit_candidates = [
+                item for item in open_position_series if item[1].side is SignalSide.SELL
+            ]
             buy_candidates = [item for item in scored if item[1].side is SignalSide.BUY]
             current_open_count = len(self.broker.snapshot().open_positions)
             fresh_buy_candidates = [
                 item for item in buy_candidates if not self.broker.has_open_position(item[0].symbol)
             ]
-            if current_open_count < self.risk_engine.settings.max_open_positions and fresh_buy_candidates:
+            if exit_candidates:
+                selected_series = max(
+                    exit_candidates,
+                    key=lambda item: item[1].confidence,
+                )[0]
+            elif current_open_count < self.risk_engine.settings.max_open_positions and fresh_buy_candidates:
                 # Fill the user-selected position slots before spending cycles
                 # re-evaluating an already open symbol.
                 selected_series = max(fresh_buy_candidates, key=lambda item: self._signal_score(item[1]))[0]
@@ -387,7 +426,12 @@ class PaperTradingService:
                     portfolio=self.broker.snapshot(),
                 )
             else:
-                result = self._execute_series(selected_series)
+                result = self._execute_series(
+                    selected_series,
+                    execution_candle=execution_candles[
+                        (selected_series.exchange, selected_series.symbol)
+                    ],
+                )
             if self._latest_ticker_prices:
                 # The candle used for the trading decision is the authoritative
                 # mark for scanned symbols. A 24h ticker can otherwise be from
@@ -417,7 +461,8 @@ class PaperTradingService:
             cursor=self._next_market_cursor("binance", symbol, interval),
         )
         result = self._execute_series(fallback_series)
-        result.reason = "Tarama icin aday bulunamadi."
+        if result.action != "MARKET_DATA_UNAVAILABLE":
+            result.reason = "Tarama icin aday bulunamadi."
         self.last_reason = result.reason
         self.exchange = "all"
         return result
@@ -432,12 +477,13 @@ class PaperTradingService:
         return (side_bonus * 2.0) + (signal.confidence * 0.60) + (passed_ratio * 0.30) + regime_bonus
 
     async def _scan_candidates(self, selected_symbol: str) -> list[MarketTicker]:
-        tickers = [
-            *await self._load_scan_tickers("binance"),
-            *await self._load_scan_tickers("okx"),
-        ]
+        exchange_results = await asyncio.gather(
+            self._load_scan_tickers("binance"),
+            self._load_scan_tickers("okx"),
+        )
+        tickers = [ticker for result in exchange_results for ticker in result]
         self._latest_ticker_prices = {
-            ticker.symbol.replace("-", "").upper(): ticker.last_price
+            ticker.symbol.upper().strip(): ticker.last_price
             for ticker in tickers
             if ticker.last_price > 0
         }
@@ -543,10 +589,37 @@ class PaperTradingService:
         self._market_cursors[key] = current + PAPER_MARKET_CURSOR_STEP
         return current
 
-    def _execute_series(self, series: CandleSeries) -> TradingCycleResult:
+    def _execute_series(
+        self,
+        series: CandleSeries,
+        execution_candle: Candle | None = None,
+    ) -> TradingCycleResult:
         latest = series.candles[-1]
-        closed_trades = self.broker.evaluate_existing_positions(latest)
+        market_candle = execution_candle or latest
+        if not self._is_executable_series(series):
+            self.last_cycle_at = datetime.now(UTC)
+            self.last_action = "MARKET_DATA_UNAVAILABLE"
+            self.last_reason = "Canli piyasa verisi alinamadi; sentetik veriyle islem yapilmadi."
+            self.last_signal = None
+            self.last_risk_decision = None
+            return TradingCycleResult(
+                action=self.last_action,
+                reason=self.last_reason,
+                portfolio=self.broker.snapshot(),
+            )
+
+        closed_trades = self.broker.evaluate_existing_positions(market_candle)
         signal = self.strategy.generate_signal(series.symbol, series.candles)
+        if signal.side is SignalSide.BUY and market_candle.close != signal.entry_price:
+            stop_distance = signal.entry_price - signal.stop_loss
+            take_profit_distance = signal.take_profit - signal.entry_price
+            signal = signal.model_copy(
+                update={
+                    "entry_price": market_candle.close,
+                    "stop_loss": max(0.00000001, market_candle.close - stop_distance),
+                    "take_profit": market_candle.close + take_profit_distance,
+                }
+            )
 
         action = "HOLD"
         reason = signal.explanation
@@ -555,15 +628,26 @@ class PaperTradingService:
         if closed_trades:
             action = "POSITION_CLOSED"
             reason = closed_trades[-1].exit_reason
+        elif signal.side is SignalSide.SELL and self.broker.has_exact_open_position(signal.symbol):
+            trade = self.broker.close_symbol(
+                signal.symbol,
+                exit_price=market_candle.close,
+                exit_reason="STRATEGY_EXIT",
+            )
+            if trade is not None:
+                action = "POSITION_CLOSED"
+                reason = "STRATEGY_EXIT"
         elif signal.side is SignalSide.BUY:
             if self.broker.has_open_position(signal.symbol):
                 reason = "OPEN_POSITION_ALREADY_EXISTS"
+            elif self.broker.has_closed_at_or_after(signal.symbol, signal.timestamp):
+                reason = "CANDLE_ALREADY_TRADED"
             else:
                 risk_decision = self.risk_engine.evaluate(
                     signal,
                     self.broker.portfolio_snapshot_for_risk(
                         self.settings,
-                        latest.close,
+                        market_candle.close,
                         series.symbol,
                         max_total_exposure_value=self.allocation_usd or None,
                         max_position_value=self.allocation_per_position_usd or None,
@@ -574,7 +658,7 @@ class PaperTradingService:
                         signal,
                         OrderValidationContext(
                             kill_switch_enabled=self.settings.kill_switch_enabled,
-                            latest_price=latest.close,
+                            latest_price=market_candle.close,
                             max_price_age_seconds=7200,
                             price_age_seconds=0,
                         ),
@@ -603,7 +687,26 @@ class PaperTradingService:
             reason=reason,
             signal=signal,
             risk_decision=risk_decision,
-            portfolio=self.broker.snapshot(mark_price=latest.close, mark_symbol=series.symbol),
+            portfolio=self.broker.snapshot(
+                mark_price=market_candle.close,
+                mark_symbol=series.symbol,
+            ),
+        )
+
+    def _prepare_series(self, series: CandleSeries) -> CandleSeries:
+        # REST candle endpoints expose the currently forming candle. Entry
+        # signals based on it repaint on every worker poll, so live decisions
+        # use the latest finalized candle only. Offline fixtures are already
+        # finalized snapshots and remain unchanged.
+        if "public_market_data" in series.source:
+            finalized = [candle for candle in series.candles if candle.is_closed]
+            if finalized:
+                return series.model_copy(update={"candles": finalized})
+        return series
+
+    def _is_executable_series(self, series: CandleSeries) -> bool:
+        return self.settings.allow_offline_paper_trading or not series.source.startswith(
+            "offline_paper_"
         )
 
     def _set_allocation(self, position_count: int | None, allocation_usd: float | None) -> None:

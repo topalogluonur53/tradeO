@@ -34,8 +34,15 @@ class RiskEngine:
         if signal.stop_loss >= signal.entry_price:
             return RiskDecision(approved=False, reason="STOP_LOSS_MUST_BE_BELOW_ENTRY_FOR_LONG")
 
-        reward = signal.take_profit - signal.entry_price
-        risk = signal.entry_price - signal.stop_loss
+        slippage_rate = self.settings.paper_slippage_bps / 10_000.0
+        fee_rate = self.settings.paper_fee_rate
+        entry_unit_cost = signal.entry_price * (1.0 + slippage_rate) * (1.0 + fee_rate)
+        stop_unit_proceeds = signal.stop_loss * (1.0 - slippage_rate) * (1.0 - fee_rate)
+        take_profit_unit_proceeds = (
+            signal.take_profit * (1.0 - slippage_rate) * (1.0 - fee_rate)
+        )
+        reward = take_profit_unit_proceeds - entry_unit_cost
+        risk = entry_unit_cost - stop_unit_proceeds
         if risk <= 0:
             return RiskDecision(approved=False, reason="INVALID_STOP_DISTANCE")
 
@@ -69,14 +76,14 @@ class RiskEngine:
         max_position_value = configured_position_cap
         if portfolio.max_position_value is not None:
             max_position_value = min(configured_position_cap, max(0.0, portfolio.max_position_value))
-        quantity_by_position_cap = max_position_value / signal.entry_price
+        quantity_by_position_cap = max_position_value / entry_unit_cost
         max_total_value = (
             max(0.0, portfolio.max_total_exposure_value)
             if portfolio.max_total_exposure_value is not None
             else portfolio.account_equity * self.settings.max_total_exposure_pct
         )
         remaining_exposure = max(0.0, max_total_value - portfolio.current_exposure)
-        quantity_by_exposure = remaining_exposure / signal.entry_price
+        quantity_by_exposure = remaining_exposure / entry_unit_cost
 
         quantity = min(quantity_by_risk, quantity_by_position_cap, quantity_by_exposure)
         if quantity <= 0:
@@ -86,5 +93,5 @@ class RiskEngine:
             approved=True,
             reason="APPROVED_FOR_PAPER_EXECUTION",
             position_quantity=quantity,
-            notional_value=quantity * signal.entry_price,
+            notional_value=quantity * entry_unit_cost,
         )

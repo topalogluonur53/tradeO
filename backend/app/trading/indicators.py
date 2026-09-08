@@ -164,6 +164,83 @@ def volume_score(candles: list[Candle], period: int = 20) -> float:
     return min(2.0, candles[-1].volume / average_volume)
 
 
+def directional_index(candles: list[Candle], period: int = 14) -> dict[str, float]:
+    """Return ADX and directional indicators using rolling true-range sums."""
+    if len(candles) < period + 2:
+        return {"adx": 0.0, "plus_di": 0.0, "minus_di": 0.0}
+
+    true_ranges: list[float] = []
+    plus_movements: list[float] = []
+    minus_movements: list[float] = []
+    for previous, current in zip(candles, candles[1:]):
+        upward = current.high - previous.high
+        downward = previous.low - current.low
+        plus_movements.append(upward if upward > downward and upward > 0 else 0.0)
+        minus_movements.append(downward if downward > upward and downward > 0 else 0.0)
+        true_ranges.append(
+            max(
+                current.high - current.low,
+                abs(current.high - previous.close),
+                abs(current.low - previous.close),
+            )
+        )
+
+    dx_values: list[float] = []
+    latest_plus_di = 0.0
+    latest_minus_di = 0.0
+    for end in range(period, len(true_ranges) + 1):
+        start = end - period
+        true_range_sum = sum(true_ranges[start:end])
+        if true_range_sum <= 0:
+            continue
+        latest_plus_di = 100.0 * sum(plus_movements[start:end]) / true_range_sum
+        latest_minus_di = 100.0 * sum(minus_movements[start:end]) / true_range_sum
+        directional_total = latest_plus_di + latest_minus_di
+        if directional_total > 0:
+            dx_values.append(
+                100.0 * abs(latest_plus_di - latest_minus_di) / directional_total
+            )
+
+    adx_value = sum(dx_values[-period:]) / min(len(dx_values), period) if dx_values else 0.0
+    return {
+        "adx": adx_value,
+        "plus_di": latest_plus_di,
+        "minus_di": latest_minus_di,
+    }
+
+
+def aggregate_candles(candles: list[Candle], factor: int = 4) -> list[Candle]:
+    """Aggregate finalized candles into complete higher-timeframe groups."""
+    if factor < 2 or len(candles) < factor:
+        return list(candles)
+
+    offset = len(candles) % factor
+    selected = candles[offset:]
+    aggregated: list[Candle] = []
+    for start in range(0, len(selected), factor):
+        group = selected[start : start + factor]
+        if len(group) != factor:
+            continue
+        first, latest = group[0], group[-1]
+        aggregated.append(
+            Candle(
+                symbol=first.symbol,
+                interval=f"{factor}x{first.interval}",
+                open_time=first.open_time,
+                close_time=latest.close_time,
+                open=first.open,
+                high=max(candle.high for candle in group),
+                low=min(candle.low for candle in group),
+                close=latest.close,
+                volume=sum(candle.volume for candle in group),
+                quote_volume=sum(candle.quote_volume for candle in group),
+                trade_count=sum(candle.trade_count for candle in group),
+                is_closed=all(candle.is_closed for candle in group),
+            )
+        )
+    return aggregated
+
+
 def calculate_indicator_snapshot(candles: list[Candle]) -> dict[str, float]:
     closes = [candle.close for candle in candles]
     ema_fast = ema(closes, 12)
@@ -184,6 +261,7 @@ def calculate_indicator_snapshot(candles: list[Candle]) -> dict[str, float]:
 
     macd_data = macd(closes)
     stoch_data = stoch_rsi(closes)
+    directional_data = directional_index(candles)
 
     return {
         "ema_fast": ema_fast,
@@ -201,4 +279,7 @@ def calculate_indicator_snapshot(candles: list[Candle]) -> dict[str, float]:
         "macd_hist": macd_data["hist"],
         "stoch_k": stoch_data["k"],
         "stoch_d": stoch_data["d"],
+        "adx": directional_data["adx"],
+        "plus_di": directional_data["plus_di"],
+        "minus_di": directional_data["minus_di"],
     }

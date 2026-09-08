@@ -28,10 +28,10 @@ class RiskLimitsResponse(BaseModel):
     strategy_bollinger_width: float = 0.15
     strategy_rsi_min: float = 25.0
     strategy_rsi_max: float = 78.0
-    strategy_volume_multiplier: float = 0.3
+    strategy_volume_multiplier: float = 0.8
     strategy_macd_enabled: bool = False
     strategy_stoch_enabled: bool = False
-    mtf_enabled: bool = False
+    mtf_enabled: bool = True
     trailing_stop_enabled: bool = False
     trailing_stop_distance_pct: float = 0.03
 

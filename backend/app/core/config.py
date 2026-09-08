@@ -28,10 +28,18 @@ class Settings(BaseSettings):
     paper_trade_interval_seconds: float = Field(default=30.0, gt=0.0, le=3600.0)
     paper_default_symbol: str = "BTCUSDT"
     paper_default_interval: str = "1h"
+    # Paper fills include conservative spot costs so backtests and portfolio
+    # results are not inflated by frictionless execution assumptions.
+    paper_fee_rate: float = Field(default=0.001, ge=0.0, le=0.01)
+    paper_slippage_bps: float = Field(default=5.0, ge=0.0, le=100.0)
+    # Synthetic candles are useful for demos/tests, but an automated bot must
+    # not silently trade them when both exchanges are unavailable.
+    allow_offline_paper_trading: bool = False
+    worker_max_concurrency: int = Field(default=2, ge=1, le=32)
 
     risk_per_trade: float = 0.005
-    max_single_position_pct: float = 0.50
-    max_total_exposure_pct: float = 1.00
+    max_single_position_pct: float = 0.10
+    max_total_exposure_pct: float = 0.30
     max_open_positions: int = 3
     daily_loss_limit_pct: float = 0.02
     max_drawdown_limit_pct: float = 0.08

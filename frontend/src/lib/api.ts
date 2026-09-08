@@ -106,6 +106,14 @@ export type TradingSignal = {
   explanation: string;
   indicators: Record<string, number>;
   filters: SignalFilter[];
+  patterns?: PricePattern[];
+};
+
+export type PricePattern = {
+  key: string;
+  label: string;
+  direction: "BULLISH" | "BEARISH" | "NEUTRAL";
+  strength: number;
 };
 
 export type SignalFilter = {
@@ -142,6 +150,7 @@ export type PaperPosition = {
   unrealized_pnl_pct: number;
   opened_at: string;
   strategy: string;
+  entry_fee: number;
 };
 
 export type PaperTrade = {
@@ -156,6 +165,7 @@ export type PaperTrade = {
   closed_at: string;
   exit_reason: string;
   strategy: string;
+  fees_paid: number;
 };
 
 export type PaperPortfolio = {
@@ -236,6 +246,7 @@ export type BacktestSummary = {
   period_start: string | null;
   period_end: string | null;
   data_source: string;
+  fees_paid: number;
 };
 
 // ---------------------------------------------------------------------------

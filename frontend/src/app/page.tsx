@@ -1186,6 +1186,7 @@ function BacktestSection({
             <StatusLine label="Sinyal" value={backtestSummary ? String(backtestSummary.signals) : "-"} />
             <StatusLine label="Kazanç / Kayıp" value={backtestSummary ? `${backtestSummary.wins} / ${backtestSummary.losses}` : "-"} />
             <StatusLine label="Net PnL" value={backtestSummary ? formatMoney(backtestSummary.net_pnl) : "-"} />
+            <StatusLine label="Komisyonlar" value={backtestSummary ? formatMoney(backtestSummary.fees_paid) : "-"} />
             <StatusLine label="Bitiş equity" value={backtestSummary ? formatMoney(backtestSummary.ending_equity) : "-"} />
             <StatusLine label="Getiri" value={backtestSummary ? formatPercentagePoints(backtestSummary.return_pct) : "-"} />
             <StatusLine label="Maks. gerileme" value={backtestSummary ? formatPercentagePoints(-backtestSummary.max_drawdown_pct) : "-"} />
@@ -1441,12 +1442,29 @@ function SignalDecisionPanel({
       <div className="mt-4 grid gap-3 text-sm">
         <StatusLine label="Güven" value={signal ? formatPercent(signal.confidence) : "-"} />
         <StatusLine label="Rejim" value={signal?.market_regime ?? "-"} />
+        <StatusLine label="ADX / Yön" value={signal ? `${signal.indicators.adx?.toFixed(1) ?? "-"} / +DI ${signal.indicators.plus_di?.toFixed(1) ?? "-"}` : "-"} />
         <StatusLine label="Giriş" value={signal ? formatPrice(signal.entry_price) : "-"} />
         <StatusLine label="Stop / TP" value={signal ? `${formatPrice(signal.stop_loss)} / ${formatPrice(signal.take_profit)}` : "-"} />
         <StatusLine label="Risk" value={riskDecision ? riskDecision.reason : "-"} />
       </div>
 
       <p className="mt-4 rounded-md bg-panelMuted/70 px-3 py-2 text-xs text-textMuted">{reason}</p>
+
+      {signal?.patterns?.length ? (
+        <div className="mt-4 rounded-md border border-line/70 bg-panelMuted/35 p-3">
+          <p className="mb-2 text-xs font-bold uppercase text-textMuted">Tespit edilen formasyonlar</p>
+          <div className="flex flex-wrap gap-2">
+            {(signal.patterns ?? []).map((pattern) => (
+              <Badge
+                key={pattern.key}
+                tone={pattern.direction === "BULLISH" ? "paper" : pattern.direction === "BEARISH" ? "warning" : "neutral"}
+              >
+                {pattern.label} · {formatPercent(pattern.strength)}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {signal?.filters.length ? (
         <div className="mt-4 grid gap-2">
@@ -1843,7 +1861,10 @@ function TradesTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
               <td className="truncate px-2 py-2 text-right">{formatPrice(trade.entry_price)}</td>
               <td className="truncate px-2 py-2 text-right">{formatPrice(trade.exit_price)}</td>
               <td className={`truncate px-2 py-2 text-right font-semibold ${trade.realized_pnl >= 0 ? "text-teal-100" : "text-rose-100"}`}>
-                {formatMoney(trade.realized_pnl)}
+                <div>{formatMoney(trade.realized_pnl)}</div>
+                <div className="text-[10px] font-normal text-textMuted">
+                  Ucret {formatMoney(trade.fees_paid)}
+                </div>
               </td>
               <td className="truncate px-2 py-2 text-textMuted text-[10px]" title={trade.exit_reason}>{trade.exit_reason}</td>
             </tr>
@@ -1906,10 +1927,10 @@ const defaultRiskLimitFormData: EditableRiskLimits = {
   strategy_bollinger_width: 0.15,
   strategy_rsi_min: 25.0,
   strategy_rsi_max: 78.0,
-  strategy_volume_multiplier: 0.3,
+  strategy_volume_multiplier: 0.8,
   strategy_macd_enabled: false,
   strategy_stoch_enabled: false,
-  mtf_enabled: false,
+  mtf_enabled: true,
   trailing_stop_enabled: false,
   trailing_stop_distance_pct: 0.03
 };
@@ -2181,7 +2202,7 @@ function RiskPanel({
             </div>
             <div className="flex items-center space-x-2">
               <input type="checkbox" id="mtf_enabled" className="rounded border-line bg-background text-primary focus:ring-primary" checked={formData.mtf_enabled} onChange={(e) => handleChange("mtf_enabled", e.target.checked)} />
-              <label htmlFor="mtf_enabled" className="text-sm text-textMuted">Çoklu Zaman Dilimi (4S Ana Trend Onayı)</label>
+              <label htmlFor="mtf_enabled" className="text-sm text-textMuted">Çoklu Zaman Dilimi (4x Üst Trend Onayı)</label>
             </div>
             <div className="flex items-center space-x-2 md:col-span-2">
               <input type="checkbox" id="trailing_enabled" className="rounded border-line bg-background text-primary focus:ring-primary" checked={formData.trailing_stop_enabled} onChange={(e) => handleChange("trailing_stop_enabled", e.target.checked)} />

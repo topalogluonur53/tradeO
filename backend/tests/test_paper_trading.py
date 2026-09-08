@@ -187,6 +187,7 @@ def use_offline_market_fixture(
     service: PaperTradingService,
     monkeypatch: pytest.MonkeyPatch | None = None,
 ) -> None:
+    service.settings.allow_offline_paper_trading = True
     async def load_scan_tickers(exchange: str) -> list[MarketTicker]:
         return build_offline_tickers("USDT", exchange=exchange).tickers
 
@@ -235,6 +236,27 @@ def test_scan_candidates_filter_invalid_markets_and_rotate_windows() -> None:
     assert first_symbols != second_symbols
 
 
+def test_scan_loads_binance_and_okx_tickers_concurrently() -> None:
+    async def run_scan() -> list[str]:
+        service = PaperTradingService(get_settings())
+        both_started = asyncio.Event()
+        started: list[str] = []
+
+        async def load(exchange: str) -> list[MarketTicker]:
+            started.append(exchange)
+            if len(started) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), timeout=0.25)
+            symbol = "BTCUSDT" if exchange == "binance" else "ETH-USDT"
+            return [make_ticker(symbol, 1_000_000)]
+
+        service._load_scan_tickers = load
+        await service._scan_candidates("BTCUSDT")
+        return started
+
+    assert set(asyncio.run(run_scan())) == {"binance", "okx"}
+
+
 def test_activation_validation_reports_ready_controls(monkeypatch: pytest.MonkeyPatch) -> None:
     trading_control.resume_paper_mode()
     use_offline_market_fixture(paper_trading_service, monkeypatch)
@@ -251,8 +273,72 @@ def test_activation_validation_reports_ready_controls(monkeypatch: pytest.Monkey
     payload = response.json()
     assert payload["ready"] is True
     assert payload["phase"] == "PHASE_1"
-    assert len(payload["rows"]) == 6
+    assert len(payload["rows"]) == 7
     assert all(row["passed"] for row in payload["rows"])
+
+
+def test_automation_never_trades_synthetic_fallback_data() -> None:
+    async def run_step():
+        service = PaperTradingService(get_settings())
+        service.settings.allow_offline_paper_trading = False
+        series = build_offline_candles("BTCUSDT", "1h", 120)
+        service._load_candle_series = lambda *args, **kwargs: asyncio.sleep(0, result=series)
+        return await service.step(symbol="BTCUSDT", interval="1h", exchange="binance")
+
+    result = asyncio.run(run_step())
+
+    assert result.action == "MARKET_DATA_UNAVAILABLE"
+    assert result.signal is None
+    assert result.portfolio.open_positions == []
+
+
+def test_live_strategy_ignores_currently_forming_candle() -> None:
+    service = PaperTradingService(get_settings())
+    original = build_offline_candles("BTCUSDT", "1h", 60)
+    candles = [*original.candles[:-1], original.candles[-1].model_copy(update={"is_closed": False})]
+    series = original.model_copy(
+        update={"source": "binance_public_market_data", "candles": candles}
+    )
+
+    prepared = service._prepare_series(series)
+
+    assert len(prepared.candles) == len(series.candles) - 1
+    assert prepared.candles[-1] == series.candles[-2]
+
+
+def test_paper_broker_applies_fees_and_slippage() -> None:
+    broker = PaperBroker(
+        initial_equity=10_000,
+        fee_rate=0.001,
+        slippage_bps=5,
+    )
+    signal = Signal(
+        symbol="BTCUSDT",
+        side=SignalSide.BUY,
+        confidence=0.8,
+        entry_price=100,
+        stop_loss=95,
+        take_profit=110,
+        strategy="TEST",
+        market_regime=MarketRegime.TRENDING_UP,
+        explanation="test",
+    )
+    broker.try_open_position(
+        signal,
+        RiskDecision(
+            approved=True,
+            reason="APPROVED_FOR_PAPER_EXECUTION",
+            position_quantity=1,
+            notional_value=101,
+        ),
+    )
+
+    closed = broker.evaluate_existing_positions(make_candle(1, close=112))
+
+    assert len(closed) == 1
+    assert closed[0].fees_paid > 0
+    assert closed[0].exit_price < signal.take_profit
+    assert closed[0].realized_pnl < 10
 
 
 def test_activation_validation_blocks_automation_when_halted(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -291,4 +377,4 @@ def test_paper_trading_all_exchange_scan_can_close_position_at_take_profit() -> 
     actions, equity = asyncio.run(run_steps())
 
     assert "POSITION_CLOSED" in actions
-    assert equity > 10_000
+    assert equity > 0

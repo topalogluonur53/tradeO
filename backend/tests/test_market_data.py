@@ -14,7 +14,13 @@ from app.market_data.binance import (
     validate_market_request,
 )
 from app.market_data.offline import build_offline_candles, build_offline_symbols, build_offline_tickers
-from app.market_data.okx import OkxMarketDataClient, normalize_okx_symbol, parse_okx_symbol, parse_okx_ticker
+from app.market_data.okx import (
+    OkxMarketDataClient,
+    normalize_okx_symbol,
+    parse_okx_candle,
+    parse_okx_symbol,
+    parse_okx_ticker,
+)
 
 
 def test_validate_market_request_normalizes_symbol_and_accepts_supported_interval() -> None:
@@ -245,6 +251,23 @@ def test_parse_okx_payloads_map_to_market_models() -> None:
     assert ticker.exchange == "okx"
     assert ticker.price_change == 5.0
     assert ticker.price_change_percent == 5.0
+
+
+def test_parse_okx_candle_preserves_exchange_completion_state() -> None:
+    open_candle = parse_okx_candle(
+        "BTC-USDT",
+        "15m",
+        ["1597026383000", "100", "105", "98", "102", "10", "1000", "1020", "0"],
+    )
+    closed_candle = parse_okx_candle(
+        "BTC-USDT",
+        "15m",
+        ["1597027283000", "102", "108", "101", "107", "12", "1200", "1284", "1"],
+    )
+
+    assert open_candle.is_closed is False
+    assert closed_candle.is_closed is True
+    assert closed_candle.close_time > closed_candle.open_time
 
 
 def test_offline_market_data_is_deterministic_and_valid() -> None:

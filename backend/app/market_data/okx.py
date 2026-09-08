@@ -20,6 +20,22 @@ OKX_INTERVALS = {
     "1d": "1D",
 }
 
+OKX_INTERVAL_MILLISECONDS = {
+    "1m": 60_000,
+    "3m": 180_000,
+    "5m": 300_000,
+    "15m": 900_000,
+    "30m": 1_800_000,
+    "1h": 3_600_000,
+    "2h": 7_200_000,
+    "4h": 14_400_000,
+    "6h": 21_600_000,
+    "12h": 43_200_000,
+    "1d": 86_400_000,
+}
+
+_GLOBAL_OKX_SYMBOLS_CACHE: list["MarketSymbol"] | None = None
+
 
 def normalize_okx_symbol(symbol: str) -> str:
     normalized = symbol.replace("/", "-").upper().strip()
@@ -83,7 +99,7 @@ def parse_okx_candle(symbol: str, interval: str, row: list[Any]) -> Candle:
         symbol=symbol,
         interval=interval,
         open_time=open_time,
-        close_time=open_time,
+        close_time=open_time + OKX_INTERVAL_MILLISECONDS[interval] - 1,
         open=open_price,
         high=high_price,
         low=low_price,
@@ -91,6 +107,7 @@ def parse_okx_candle(symbol: str, interval: str, row: list[Any]) -> Candle:
         volume=volume,
         quote_volume=quote_volume,
         trade_count=0,
+        is_closed=len(row) > 8 and str(row[8]) == "1",
     )
 
 
@@ -142,8 +159,9 @@ class OkxMarketDataClient:
         ]
 
     async def _load_symbols(self) -> list[MarketSymbol]:
-        if hasattr(self, "_symbols_cache"):
-            return self._symbols_cache
+        global _GLOBAL_OKX_SYMBOLS_CACHE
+        if _GLOBAL_OKX_SYMBOLS_CACHE is not None:
+            return _GLOBAL_OKX_SYMBOLS_CACHE
 
         payload = await self._get_json(
             "/api/v5/public/instruments",
@@ -160,8 +178,8 @@ class OkxMarketDataClient:
             if isinstance(row, dict)
             and str(row.get("state", "live")).lower() == "live"
         ]
-        self._symbols_cache = sorted(symbols, key=lambda item: item.symbol)
-        return self._symbols_cache
+        _GLOBAL_OKX_SYMBOLS_CACHE = sorted(symbols, key=lambda item: item.symbol)
+        return _GLOBAL_OKX_SYMBOLS_CACHE
 
     async def get_24h_tickers(self, quote_asset: str | None = None) -> MarketOverview:
         active_symbols = {symbol.symbol for symbol in await self.get_symbols(quote_asset=quote_asset)}

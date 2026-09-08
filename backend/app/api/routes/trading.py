@@ -42,6 +42,7 @@ class BacktestSummary(BaseModel):
     period_start: datetime | None
     period_end: datetime | None
     data_source: str
+    fees_paid: float = 0.0
 
 
 class ResetPaperPortfolioRequest(BaseModel):
@@ -117,7 +118,8 @@ def trading_state(
                     unrealized_pnl=p.unrealized_pnl,
                     unrealized_pnl_pct=p.unrealized_pnl_pct,
                     opened_at=p.opened_at,
-                    strategy=p.strategy
+                    strategy=p.strategy,
+                    entry_fee=p.entry_fee,
                 ) for p in portfolio.open_positions
             ],
             closed_trades=[
@@ -132,7 +134,8 @@ def trading_state(
                     opened_at=t.opened_at,
                     closed_at=t.closed_at,
                     exit_reason=t.exit_reason,
-                    strategy=t.strategy
+                    strategy=t.strategy,
+                    fees_paid=t.fees_paid,
                 ) for t in portfolio.closed_trades[-50:]
             ],
             daily_pnl=portfolio.daily_pnl,
@@ -352,7 +355,7 @@ async def run_backtest(
     initial_equity: float | None = Query(default=None, gt=0.0, le=1_000_000_000.0),
 ) -> BacktestSummary:
     settings = get_settings()
-    strategy = NexusAIStrategy()
+    strategy = NexusAIStrategy(mtf_enabled=True)
     selected_exchange = normalize_exchange(exchange)
     if selected_exchange == "all":
         selected_exchange = "binance"
@@ -377,6 +380,11 @@ async def run_backtest(
             exchange=selected_exchange,
         )
 
+    if "public_market_data" in series.source:
+        finalized = [candle for candle in series.candles if candle.is_closed]
+        if finalized:
+            series = series.model_copy(update={"candles": finalized})
+
     starting_equity = initial_equity or settings.paper_initial_equity
     equity = starting_equity
     position_entry: float | None = None
@@ -387,40 +395,60 @@ async def run_backtest(
     wins = 0
     losses = 0
     net_pnl = 0.0
+    fees_paid = 0.0
     peak_equity = starting_equity
     max_drawdown_pct = 0.0
 
     for index in range(30, len(series.candles)):
         window = series.candles[: index + 1]
         candle = window[-1]
+        signal = strategy.generate_signal(series.symbol, window)
 
+        closed_this_candle = False
         if position_entry is not None:
             exit_price = None
             if candle.low <= stop_loss:
                 exit_price = stop_loss
             elif candle.high >= take_profit:
                 exit_price = take_profit
+            elif signal.side is SignalSide.SELL:
+                exit_price = candle.close
 
             if exit_price is not None:
-                realized_pnl = (exit_price - position_entry) * quantity
+                execution_exit = exit_price * (1.0 - settings.paper_slippage_bps / 10_000.0)
+                exit_fee = execution_exit * quantity * settings.paper_fee_rate
+                fees_paid += exit_fee
+                realized_pnl = (execution_exit - position_entry) * quantity - exit_fee
                 net_pnl += realized_pnl
                 equity += realized_pnl
                 wins += 1 if realized_pnl > 0 else 0
                 losses += 1 if realized_pnl <= 0 else 0
                 position_entry = None
+                closed_this_candle = True
 
-        if position_entry is None:
-            signal = strategy.generate_signal(series.symbol, window)
+        if position_entry is None and not closed_this_candle:
             if signal.side is SignalSide.BUY:
                 signals += 1
                 risk_amount = equity * settings.risk_per_trade
-                risk_per_unit = signal.entry_price - signal.stop_loss
+                execution_entry = signal.entry_price * (
+                    1.0 + settings.paper_slippage_bps / 10_000.0
+                )
+                entry_fee_per_unit = execution_entry * settings.paper_fee_rate
+                stop_proceeds = signal.stop_loss * (
+                    1.0 - settings.paper_slippage_bps / 10_000.0
+                ) * (1.0 - settings.paper_fee_rate)
+                risk_per_unit = execution_entry + entry_fee_per_unit - stop_proceeds
                 if risk_per_unit > 0:
                     quantity = min(
                         risk_amount / risk_per_unit,
-                        (equity * settings.max_single_position_pct) / signal.entry_price,
+                        (equity * settings.max_single_position_pct)
+                        / (execution_entry + entry_fee_per_unit),
                     )
-                    position_entry = signal.entry_price
+                    entry_fee = execution_entry * quantity * settings.paper_fee_rate
+                    fees_paid += entry_fee
+                    net_pnl -= entry_fee
+                    equity -= entry_fee
+                    position_entry = execution_entry
                     stop_loss = signal.stop_loss
                     take_profit = signal.take_profit
 
@@ -433,7 +461,9 @@ async def run_backtest(
 
     open_position_pnl = 0.0
     if position_entry is not None and series.candles:
-        open_position_pnl = (series.candles[-1].close - position_entry) * quantity
+        final_price = series.candles[-1].close
+        estimated_exit_fee = final_price * quantity * settings.paper_fee_rate
+        open_position_pnl = (final_price - position_entry) * quantity - estimated_exit_fee
     total_pnl = net_pnl + open_position_pnl
     ending_equity = equity + open_position_pnl
     period_start = datetime.fromtimestamp(series.candles[0].open_time / 1000, tz=timezone.utc) if series.candles else None
@@ -455,4 +485,5 @@ async def run_backtest(
         period_start=period_start,
         period_end=period_end,
         data_source=series.source,
+        fees_paid=fees_paid,
     )

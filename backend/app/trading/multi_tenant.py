@@ -1,11 +1,15 @@
-import json
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from uuid import uuid4
 
 from app.models.user import User
 from app.models.trading import PaperPortfolio, PaperPosition, PaperTrade, AutomationState
-from app.trading.paper_broker import PaperBroker, PaperPortfolioState, PaperPosition as BrokerPosition, PaperTrade as BrokerTrade
+from app.trading.paper_broker import (
+    PaperBroker,
+    PaperPortfolioState,
+    PaperPosition as BrokerPosition,
+    PaperTrade as BrokerTrade,
+    TradingCycleResult,
+)
 from app.trading.paper_trading import PaperTradingService
 from app.core.config import get_settings
 from app.trading.strategy_engine import NexusAIStrategy
@@ -70,7 +74,8 @@ async def execute_trading_step_for_user(
             unrealized_pnl=p.unrealized_pnl,
             unrealized_pnl_pct=p.unrealized_pnl_pct,
             opened_at=p.opened_at,
-            strategy=p.strategy
+            strategy=p.strategy,
+            entry_fee=p.entry_fee,
         ) for p in db_positions
     ]
     
@@ -86,8 +91,9 @@ async def execute_trading_step_for_user(
             opened_at=t.opened_at,
             closed_at=t.closed_at,
             exit_reason=t.exit_reason,
-            strategy=t.strategy
-        ) for t in db_trades[-50:] # Only load last 50 for memory
+            strategy=t.strategy,
+            fees_paid=t.fees_paid,
+        ) for t in _recent_and_today_trades(db_trades)
     ]
     
     # 2. Reconstruct PaperTradingService specific to this user
@@ -98,7 +104,8 @@ async def execute_trading_step_for_user(
         rsi_max=user.strategy_rsi_max,
         volume_multiplier=user.strategy_volume_multiplier,
         macd_enabled=user.strategy_macd_enabled,
-        stoch_enabled=user.strategy_stoch_enabled
+        stoch_enabled=user.strategy_stoch_enabled,
+        mtf_enabled=user.mtf_enabled,
     )
     
     # Apply user-specific risk limits from the User model!
@@ -141,7 +148,9 @@ async def execute_trading_step_for_user(
         closed_trades=closed_trades,
         consecutive_losses=portfolio.consecutive_losses,
         trailing_stop_enabled=user.trailing_stop_enabled,
-        trailing_stop_distance_pct=user.trailing_stop_distance_pct
+        trailing_stop_distance_pct=user.trailing_stop_distance_pct,
+        fee_rate=settings.paper_fee_rate,
+        slippage_bps=settings.paper_slippage_bps,
     )
     
     # Load Automation State
@@ -193,7 +202,8 @@ def _save_portfolio_state_to_db(db: Session, portfolio: PaperPortfolio, new_stat
             unrealized_pnl=p.unrealized_pnl,
             unrealized_pnl_pct=p.unrealized_pnl_pct,
             opened_at=p.opened_at,
-            strategy=p.strategy
+            strategy=p.strategy,
+            entry_fee=p.entry_fee,
         ))
         
     # Append new trades
@@ -212,7 +222,8 @@ def _save_portfolio_state_to_db(db: Session, portfolio: PaperPortfolio, new_stat
                 opened_at=t.opened_at,
                 closed_at=t.closed_at,
                 exit_reason=t.exit_reason,
-                strategy=t.strategy
+                strategy=t.strategy,
+                fees_paid=t.fees_paid,
             ))
 
 async def close_position_for_user(db: Session, user: User, position_id: str):
@@ -225,21 +236,24 @@ async def close_position_for_user(db: Session, user: User, position_id: str):
             id=p.id, symbol=p.symbol, quantity=p.quantity, entry_price=p.entry_price,
             current_price=p.current_price, stop_loss=p.stop_loss, take_profit=p.take_profit,
             unrealized_pnl=p.unrealized_pnl, unrealized_pnl_pct=p.unrealized_pnl_pct,
-            opened_at=p.opened_at, strategy=p.strategy
+            opened_at=p.opened_at, strategy=p.strategy, entry_fee=p.entry_fee,
         ) for p in db_positions
     ]
     closed_trades = [
         BrokerTrade(
             id=t.id, symbol=t.symbol, side=t.side, quantity=t.quantity, entry_price=t.entry_price,
             exit_price=t.exit_price, realized_pnl=t.realized_pnl, opened_at=t.opened_at,
-            closed_at=t.closed_at, exit_reason=t.exit_reason, strategy=t.strategy
-        ) for t in db_trades[-50:]
+            closed_at=t.closed_at, exit_reason=t.exit_reason, strategy=t.strategy,
+            fees_paid=t.fees_paid,
+        ) for t in _recent_and_today_trades(db_trades)
     ]
     
     service = PaperTradingService(settings)
     service.broker = PaperBroker(
         initial_equity=portfolio.initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
-        open_positions=open_positions, closed_trades=closed_trades, consecutive_losses=portfolio.consecutive_losses
+        open_positions=open_positions, closed_trades=closed_trades,
+        consecutive_losses=portfolio.consecutive_losses,
+        fee_rate=settings.paper_fee_rate, slippage_bps=settings.paper_slippage_bps,
     )
     result = service.close_position(position_id)
     _save_portfolio_state_to_db(db, portfolio, result.portfolio, db_trades)
@@ -260,21 +274,24 @@ async def close_all_positions_for_user(db: Session, user: User):
             id=p.id, symbol=p.symbol, quantity=p.quantity, entry_price=p.entry_price,
             current_price=p.current_price, stop_loss=p.stop_loss, take_profit=p.take_profit,
             unrealized_pnl=p.unrealized_pnl, unrealized_pnl_pct=p.unrealized_pnl_pct,
-            opened_at=p.opened_at, strategy=p.strategy
+            opened_at=p.opened_at, strategy=p.strategy, entry_fee=p.entry_fee,
         ) for p in db_positions
     ]
     closed_trades = [
         BrokerTrade(
             id=t.id, symbol=t.symbol, side=t.side, quantity=t.quantity, entry_price=t.entry_price,
             exit_price=t.exit_price, realized_pnl=t.realized_pnl, opened_at=t.opened_at,
-            closed_at=t.closed_at, exit_reason=t.exit_reason, strategy=t.strategy
-        ) for t in db_trades[-50:]
+            closed_at=t.closed_at, exit_reason=t.exit_reason, strategy=t.strategy,
+            fees_paid=t.fees_paid,
+        ) for t in _recent_and_today_trades(db_trades)
     ]
     
     service = PaperTradingService(settings)
     service.broker = PaperBroker(
         initial_equity=portfolio.initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
-        open_positions=open_positions, closed_trades=closed_trades, consecutive_losses=portfolio.consecutive_losses
+        open_positions=open_positions, closed_trades=closed_trades,
+        consecutive_losses=portfolio.consecutive_losses,
+        fee_rate=settings.paper_fee_rate, slippage_bps=settings.paper_slippage_bps,
     )
     result = service.close_all_positions()
     _save_portfolio_state_to_db(db, portfolio, result.portfolio, db_trades)
@@ -284,3 +301,20 @@ async def close_all_positions_for_user(db: Session, user: User):
     auto_state.last_reason = result.reason
     db.commit()
     return result
+
+
+def _recent_and_today_trades(db_trades: list[PaperTrade]) -> list[PaperTrade]:
+    """Keep bounded history without dropping trades used by today's loss cap."""
+    today = datetime.now(timezone.utc).date()
+    recent_ids = {trade.id for trade in db_trades[-50:]}
+    return [
+        trade
+        for trade in db_trades
+        if trade.id in recent_ids or _as_utc(trade.closed_at).date() == today
+    ]
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

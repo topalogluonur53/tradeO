@@ -87,7 +87,9 @@ docker compose config
 
 - FastAPI backend with structured config, logging, CORS, database session helpers, Alembic, health route, trading safety interfaces, and tests.
 - Read-only Binance public market-data adapter for OHLCV candles. It does not use exchange API keys or trading endpoints.
-- Deterministic EMA/RSI spot-long strategy engine, risk sizing, order validation, in-memory paper broker, automatic paper trading loop, and backtest endpoint.
+- Deterministic confluence engine combining EMA, RSI, Bollinger, MACD, Stoch RSI, ADX/DMI, volume, market regime, optional 4x higher-timeframe confirmation, and high-value price formations.
+- Bullish/bearish engulfing, hammer/shooting star, morning/evening star, three soldiers/crows, 20-candle breakout/breakdown, and confirmed double-top/bottom detection.
+- Finalized-candle entries, intrabar stop/take-profit monitoring, bearish strategy exits, risk sizing, order validation, realistic paper fees/slippage, and a cost-aware backtest endpoint.
 - Next.js trading terminal UI with live API status, functional mobile navigation, backend-controlled Emergency Stop/resume actions, dashboard metrics, live candlestick chart, market table, bot controls, paper portfolio, trade history, risk status, and reusable loading/empty/error components.
 - Docker Compose with PostgreSQL, Redis, backend, worker, and frontend services.
 
@@ -101,7 +103,7 @@ docker compose config
 
 ## Known Limitations
 
-- Persistent market-data storage, persistent order storage, advanced walk-forward reports, and AI narrative analysis are Phase 2+ work.
+- Persistent market-data storage, advanced walk-forward reports, and AI narrative analysis are Phase 2+ work.
 - Dashboard values are empty or explicitly marked demo until paper-trading data exists.
 - The backend database layer is configured but migrations are intentionally minimal until domain tables are finalized.
 
@@ -109,4 +111,4 @@ docker compose config
 
 - Add persistent OHLCV storage and scheduled market-data refresh jobs.
 - Implement deterministic indicator pipelines and strategy selection by market regime.
-- Add walk-forward validation, out-of-sample reporting, fees/slippage modeling, and Monte Carlo trade-order simulation scaffolding.
+- Add walk-forward validation, out-of-sample reporting, and Monte Carlo trade-order simulation scaffolding.

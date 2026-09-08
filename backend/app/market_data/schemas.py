@@ -13,6 +13,7 @@ class Candle(BaseModel):
     volume: float
     quote_volume: float
     trade_count: int
+    is_closed: bool = True
 
 
 class CandleSeries(BaseModel):
