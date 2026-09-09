@@ -5,9 +5,9 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install build deps for psycopg (needed when no prebuilt wheel exists for the target arch)
+# Install libpq for psycopg runtime (no compilation needed)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc libpq-dev && \
+    apt-get install -y --no-install-recommends libpq5 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
