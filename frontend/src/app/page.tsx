@@ -1784,7 +1784,7 @@ function PositionsTable({ portfolio, onRefreshAll }: { portfolio: PaperPortfolio
                 <td className="truncate px-2 py-2 text-textMuted text-xs" title={formatFullDateTime(position.opened_at)}>{formatFullDateTime(position.opened_at)}</td>
                 <td className="truncate px-2 py-2 font-semibold" title={position.symbol}>{position.symbol}</td>
                 <td className="truncate px-2 py-2 text-right text-textMuted" title={formatQuantity(position.quantity)}>
-                  <div className="text-textPrimary">{formatMoney(position.quantity * position.entry_price)}</div>
+                  <div className="text-textPrimary">{formatMoney((position.quantity * position.entry_price) + position.entry_fee)}</div>
                   <div className="text-[10px]">{formatQuantity(position.quantity)} Adet</div>
                 </td>
                 <td className="truncate px-2 py-2 text-right" title={formatPrice(position.entry_price)}>{formatPrice(position.entry_price)}</td>
@@ -1837,7 +1837,7 @@ function TradesTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
           <tr className="border-b border-line">
             <th className="w-[14%] px-2 py-2 font-bold">Açılış</th>
             <th className="w-[14%] px-2 py-2 font-bold">Kapanış</th>
-            <th className="w-[16%] px-2 py-2 font-bold">Büyüklük</th>
+            <th className="w-[16%] px-2 py-2 font-bold">Sembol / İşlem</th>
             <th className="w-[12%] px-2 py-2 font-bold text-right">Giriş</th>
             <th className="w-[12%] px-2 py-2 font-bold text-right">Çıkış</th>
             <th className="w-[14%] px-2 py-2 font-bold text-right">K/Z</th>
@@ -1855,7 +1855,7 @@ function TradesTable({ portfolio }: { portfolio: PaperPortfolio | null }) {
                   <span className="text-[9px] px-1 bg-panelMuted rounded text-textMuted">{trade.side === "BUY" ? "AL" : "SAT"}</span>
                 </div>
                 <div className="text-[10px] text-textMuted">
-                  {formatMoney(trade.quantity * trade.entry_price)} <span className="opacity-70">({formatQuantity(trade.quantity)} Adet)</span>
+                  {formatMoney((trade.quantity * trade.entry_price) + (trade.fees_paid / 2))} <span className="opacity-70">({formatQuantity(trade.quantity)} Adet)</span>
                 </div>
               </td>
               <td className="truncate px-2 py-2 text-right">{formatPrice(trade.entry_price)}</td>

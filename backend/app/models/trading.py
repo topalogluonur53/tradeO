@@ -38,6 +38,12 @@ class PaperPosition(Base):
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     strategy: Mapped[str] = mapped_column(String(100), nullable=False)
     entry_fee: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    initial_stop_loss: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    highest_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    bars_held: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_counted_close_time: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    entry_candle_close_time: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stop_type: Mapped[str] = mapped_column(String(20), nullable=False, default="INITIAL")
 
     portfolio = relationship("PaperPortfolio", back_populates="open_positions")
 

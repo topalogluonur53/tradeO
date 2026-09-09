@@ -52,7 +52,11 @@ async def run_trading_worker():
                 if state is not None:
                     state.last_action = "AUTO_ERROR"
                     state.last_reason = str(exc)[:255]
-                    db.commit()
+                    try:
+                        db.commit()
+                    except Exception as commit_exc:
+                        db.rollback()
+                        logger.error("Failed to commit AUTO_ERROR state for %s: %s", state_id, commit_exc)
             finally:
                 db.close()
 

@@ -76,6 +76,12 @@ async def execute_trading_step_for_user(
             opened_at=p.opened_at,
             strategy=p.strategy,
             entry_fee=p.entry_fee,
+            initial_stop_loss=p.initial_stop_loss,
+            highest_price=p.highest_price,
+            bars_held=p.bars_held,
+            last_counted_close_time=p.last_counted_close_time,
+            entry_candle_close_time=p.entry_candle_close_time,
+            stop_type=p.stop_type,
         ) for p in db_positions
     ]
     
@@ -204,6 +210,12 @@ def _save_portfolio_state_to_db(db: Session, portfolio: PaperPortfolio, new_stat
             opened_at=p.opened_at,
             strategy=p.strategy,
             entry_fee=p.entry_fee,
+            initial_stop_loss=p.initial_stop_loss,
+            highest_price=p.highest_price,
+            bars_held=p.bars_held,
+            last_counted_close_time=p.last_counted_close_time,
+            entry_candle_close_time=p.entry_candle_close_time,
+            stop_type=p.stop_type,
         ))
         
     # Append new trades
@@ -253,6 +265,8 @@ async def close_position_for_user(db: Session, user: User, position_id: str):
         initial_equity=portfolio.initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
         open_positions=open_positions, closed_trades=closed_trades,
         consecutive_losses=portfolio.consecutive_losses,
+        trailing_stop_enabled=user.trailing_stop_enabled,
+        trailing_stop_distance_pct=user.trailing_stop_distance_pct,
         fee_rate=settings.paper_fee_rate, slippage_bps=settings.paper_slippage_bps,
     )
     result = service.close_position(position_id)
@@ -291,6 +305,8 @@ async def close_all_positions_for_user(db: Session, user: User):
         initial_equity=portfolio.initial_equity, cash=portfolio.cash, peak_equity=portfolio.peak_equity,
         open_positions=open_positions, closed_trades=closed_trades,
         consecutive_losses=portfolio.consecutive_losses,
+        trailing_stop_enabled=user.trailing_stop_enabled,
+        trailing_stop_distance_pct=user.trailing_stop_distance_pct,
         fee_rate=settings.paper_fee_rate, slippage_bps=settings.paper_slippage_bps,
     )
     result = service.close_all_positions()

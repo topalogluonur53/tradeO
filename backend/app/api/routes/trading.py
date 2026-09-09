@@ -389,6 +389,7 @@ async def run_backtest(
     starting_equity = initial_equity or settings.paper_initial_equity
     equity = starting_equity
     position_entry: float | None = None
+    position_entry_fee = 0.0
     stop_loss = 0.0
     take_profit = 0.0
     quantity = 0.0
@@ -419,12 +420,17 @@ async def run_backtest(
                 execution_exit = exit_price * (1.0 - settings.paper_slippage_bps / 10_000.0)
                 exit_fee = execution_exit * quantity * settings.paper_fee_rate
                 fees_paid += exit_fee
-                realized_pnl = (execution_exit - position_entry) * quantity - exit_fee
+                realized_pnl = (
+                    (execution_exit - position_entry) * quantity
+                    - position_entry_fee
+                    - exit_fee
+                )
                 net_pnl += realized_pnl
-                equity += realized_pnl
+                equity += (execution_exit * quantity) - exit_fee
                 wins += 1 if realized_pnl > 0 else 0
                 losses += 1 if realized_pnl <= 0 else 0
                 position_entry = None
+                position_entry_fee = 0.0
                 closed_this_candle = True
 
         if position_entry is None and not closed_this_candle:
@@ -451,9 +457,9 @@ async def run_backtest(
                     )
                     entry_fee = execution_entry * quantity * settings.paper_fee_rate
                     fees_paid += entry_fee
-                    net_pnl -= entry_fee
-                    equity -= entry_fee
+                    equity -= (execution_entry * quantity) + entry_fee
                     position_entry = execution_entry
+                    position_entry_fee = entry_fee
                     stop_loss = signal.stop_loss
                     take_profit = signal.take_profit
 
@@ -468,7 +474,11 @@ async def run_backtest(
     if position_entry is not None and series.candles:
         final_price = series.candles[-1].close
         estimated_exit_fee = final_price * quantity * settings.paper_fee_rate
-        open_position_pnl = (final_price - position_entry) * quantity - estimated_exit_fee
+        open_position_pnl = (
+            (final_price - position_entry) * quantity
+            - position_entry_fee
+            - estimated_exit_fee
+        )
     total_pnl = net_pnl + open_position_pnl
     ending_equity = equity + open_position_pnl
     period_start = datetime.fromtimestamp(series.candles[0].open_time / 1000, tz=timezone.utc) if series.candles else None
