@@ -98,7 +98,7 @@ class RiskEngine:
         configured_position_cap = max(0.0, allocation_base) * self.settings.max_single_position_pct
         max_position_value = configured_position_cap
         if portfolio.max_position_value is not None:
-            max_position_value = min(configured_position_cap, max(0.0, portfolio.max_position_value))
+            max_position_value = max(0.0, portfolio.max_position_value)
         quantity_by_position_cap = max_position_value / entry_unit_cost
         max_total_value = (
             max(0.0, portfolio.max_total_exposure_value)
