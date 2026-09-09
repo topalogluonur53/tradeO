@@ -1916,9 +1916,9 @@ function BotStatus({
 type EditableRiskLimits = Omit<RiskLimits, "stop_loss_required">;
 
 const defaultRiskLimitFormData: EditableRiskLimits = {
-  risk_per_trade: 0.05,
-  max_single_position_pct: 0.5,
-  max_total_exposure_pct: 1.0,
+  risk_per_trade: 0.005,
+  max_single_position_pct: 0.1,
+  max_total_exposure_pct: 0.3,
   max_open_positions: 3,
   daily_loss_limit_pct: 0.02,
   max_drawdown_limit_pct: 0.08,
@@ -1931,7 +1931,7 @@ const defaultRiskLimitFormData: EditableRiskLimits = {
   strategy_macd_enabled: false,
   strategy_stoch_enabled: false,
   mtf_enabled: true,
-  trailing_stop_enabled: false,
+  trailing_stop_enabled: true,
   trailing_stop_distance_pct: 0.03
 };
 

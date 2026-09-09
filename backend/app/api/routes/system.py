@@ -32,7 +32,7 @@ class RiskLimitsResponse(BaseModel):
     strategy_macd_enabled: bool = False
     strategy_stoch_enabled: bool = False
     mtf_enabled: bool = True
-    trailing_stop_enabled: bool = False
+    trailing_stop_enabled: bool = True
     trailing_stop_distance_pct: float = 0.03
 
 

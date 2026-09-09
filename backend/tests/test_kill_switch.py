@@ -95,3 +95,48 @@ def test_automation_allocation_caps_each_position_equally() -> None:
 
     assert decision.approved is True
     assert decision.notional_value <= 250.0
+
+
+def test_uncertain_regime_halves_position_risk() -> None:
+    settings = get_settings()
+    settings.cooldown_after_losses = 0
+    engine = RiskEngine(settings)
+    portfolio = PortfolioSnapshot(
+        account_equity=10_000.0,
+        current_exposure=0.0,
+        open_positions=0,
+        daily_pnl=0.0,
+        peak_equity=10_000.0,
+        consecutive_losses=0,
+    )
+
+    uptrend = engine.evaluate(valid_signal(), portfolio)
+    uncertain = engine.evaluate(
+        valid_signal().model_copy(update={"market_regime": MarketRegime.UNCERTAIN}),
+        portfolio,
+    )
+
+    assert uptrend.approved is True
+    assert uncertain.approved is True
+    assert uncertain.position_quantity == uptrend.position_quantity * 0.5
+
+
+def test_downtrend_cannot_receive_new_long_risk() -> None:
+    settings = get_settings()
+    settings.cooldown_after_losses = 0
+    signal = valid_signal().model_copy(update={"market_regime": MarketRegime.TRENDING_DOWN})
+
+    decision = RiskEngine(settings).evaluate(
+        signal,
+        PortfolioSnapshot(
+            account_equity=10_000.0,
+            current_exposure=0.0,
+            open_positions=0,
+            daily_pnl=0.0,
+            peak_equity=10_000.0,
+            consecutive_losses=0,
+        ),
+    )
+
+    assert decision.approved is False
+    assert decision.reason == "MARKET_REGIME_RISK_OFF"

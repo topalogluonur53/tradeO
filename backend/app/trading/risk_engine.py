@@ -2,7 +2,19 @@ from dataclasses import dataclass
 
 from app.core.config import Settings
 from app.trading.control import trading_control
-from app.trading.schemas import RiskDecision, Signal, SignalSide
+from app.trading.schemas import MarketRegime, RiskDecision, Signal, SignalSide
+
+
+REGIME_RISK_FACTORS = {
+    MarketRegime.TRENDING_UP: 1.0,
+    MarketRegime.UNCERTAIN: 0.5,
+    MarketRegime.RANGING: 0.35,
+}
+
+
+def regime_risk_factor(regime: MarketRegime) -> float:
+    """Return the long-only risk budget multiplier for a market regime."""
+    return REGIME_RISK_FACTORS.get(regime, 0.0)
 
 
 @dataclass(frozen=True)
@@ -69,7 +81,18 @@ class RiskEngine:
         if drawdown >= self.settings.max_drawdown_limit_pct:
             return RiskDecision(approved=False, reason="MAX_DRAWDOWN_LIMIT_REACHED")
 
-        risk_amount = portfolio.account_equity * self.settings.risk_per_trade
+        # Preserve the configured risk in a confirmed uptrend, but cut it in
+        # half while direction is uncertain and to one third in a range. This
+        # limits bull-trap damage without changing the user's hard caps.
+        risk_factor = regime_risk_factor(signal.market_regime)
+        if risk_factor <= 0:
+            return RiskDecision(approved=False, reason="MARKET_REGIME_RISK_OFF")
+
+        risk_amount = (
+            portfolio.account_equity
+            * self.settings.risk_per_trade
+            * risk_factor
+        )
         quantity_by_risk = risk_amount / risk
         allocation_base = portfolio.available_cash if portfolio.available_cash is not None else portfolio.account_equity
         configured_position_cap = max(0.0, allocation_base) * self.settings.max_single_position_pct

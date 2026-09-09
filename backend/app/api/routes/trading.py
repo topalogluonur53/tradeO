@@ -16,6 +16,7 @@ from app.trading.paper_broker import PaperPortfolioState, TradingCycleResult, Pa
 from app.trading.paper_trading import ActivationValidationSummary, AutomationState, PaperTradingService
 from app.trading.multi_tenant import execute_trading_step_for_user, get_or_create_automation_state, get_or_create_portfolio, close_position_for_user, close_all_positions_for_user
 from app.trading.schemas import SignalSide, Signal, RiskDecision
+from app.trading.risk_engine import regime_risk_factor
 from app.trading.strategy_engine import NexusAIStrategy
 
 router = APIRouter(prefix="/trading", tags=["trading"])
@@ -429,7 +430,11 @@ async def run_backtest(
         if position_entry is None and not closed_this_candle:
             if signal.side is SignalSide.BUY:
                 signals += 1
-                risk_amount = equity * settings.risk_per_trade
+                risk_amount = (
+                    equity
+                    * settings.risk_per_trade
+                    * regime_risk_factor(signal.market_regime)
+                )
                 execution_entry = signal.entry_price * (
                     1.0 + settings.paper_slippage_bps / 10_000.0
                 )

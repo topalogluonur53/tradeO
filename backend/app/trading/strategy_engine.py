@@ -73,19 +73,43 @@ class NexusAIStrategy:
         bearish_break = any(
             pattern.key in {"range_breakdown", "double_top"} for pattern in patterns
         )
+        bullish_confirmation = (
+            latest.close > latest.open
+            and (len(candles) < 2 or latest.close > candles[-2].close)
+        )
         pullback = (
             ema_trend
             and latest.low <= indicators["ema_fast"] * 1.005
             and latest.close > indicators["ema_fast"]
+            and bullish_confirmation
         )
         reversal_setup = bullish_strength >= 0.68 and latest.close > indicators["ema_slow"]
-        trend_setup = ema_trend and price_confirmation and (squeeze or pullback or breakout)
+        trend_setup = ema_trend and price_confirmation and (
+            (squeeze and bullish_confirmation) or pullback or breakout
+        )
         setup_ok = trend_setup or reversal_setup
         bearish_veto = bearish_strength >= 0.75
         trend_reversal = (
             indicators["ema_fast"] < indicators["ema_slow"]
             and indicators["minus_di"] > indicators["plus_di"]
             and indicators["macd_hist"] < 0
+        )
+        # Spot-long portfolios cannot profit from a broad decline.  Waiting
+        # for every slow reversal indicator to agree gives a sell-off too much
+        # room, so an established downtrend is an unconditional risk-off
+        # signal.  The momentum branch catches deterioration before ADX has
+        # had enough time to classify it as a full downtrend.
+        downtrend_exit = regime is MarketRegime.TRENDING_DOWN
+        momentum_exit = (
+            latest.close < indicators["ema_fast"]
+            and indicators["minus_di"] > indicators["plus_di"]
+            and indicators["macd_hist"] < 0
+            and (indicators["rsi"] < 45 or latest.close < indicators["ema_slow"])
+        )
+        volatility_exit = (
+            regime is MarketRegime.HIGH_VOLATILITY
+            and latest.close < indicators["ema_slow"]
+            and indicators["minus_di"] > indicators["plus_di"]
         )
 
         mtf_ok, mtf_actual = self._higher_timeframe_confirmation(candles)
@@ -225,23 +249,33 @@ class NexusAIStrategy:
 
         stop_distance = _smart_stop_distance(latest, candles, indicators, patterns)
         take_profit_distance = stop_distance * 2.5
-        should_sell = bearish_veto or bearish_break or trend_reversal
+        risk_off_exit = downtrend_exit or momentum_exit or volatility_exit
+        should_sell = bearish_veto or bearish_break or trend_reversal or risk_off_exit
         if should_sell:
             side = SignalSide.SELL
             sell_strength = min(
                 0.95,
                 max(
                     bearish_strength,
+                    0.88 if downtrend_exit else 0.0,
+                    0.80 if volatility_exit else 0.0,
+                    0.74 if momentum_exit else 0.0,
                     0.78 if bearish_break else 0.0,
                     0.72 if trend_reversal else 0.0,
                 ),
             )
             confidence = sell_strength
-            explanation = (
-                f"Çıkış sinyali ({sell_strength:.0%}): "
-                f"{_pattern_summary(patterns)}"
-                + ("; trend ve momentum aşağı döndü." if trend_reversal else ".")
-            )
+            if downtrend_exit:
+                exit_detail = "teyitli düşüş rejimi"
+            elif volatility_exit:
+                exit_detail = "aşağı yönlü yüksek volatilite"
+            elif momentum_exit:
+                exit_detail = "aşağı momentum kırılması"
+            elif trend_reversal:
+                exit_detail = "trend ve momentum aşağı döndü"
+            else:
+                exit_detail = _pattern_summary(patterns)
+            explanation = f"Çıkış sinyali ({sell_strength:.0%}): {exit_detail}."
         elif can_buy:
             side = SignalSide.BUY
             confidence = score

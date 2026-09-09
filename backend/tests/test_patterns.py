@@ -32,6 +32,13 @@ def orderly_uptrend(count: int = 60) -> list[Candle]:
     ]
 
 
+def orderly_downtrend(count: int = 60) -> list[Candle]:
+    return [
+        candle(index, 120 - index * 0.3 + 0.12, 120 - index * 0.3)
+        for index in range(count)
+    ]
+
+
 def test_detects_bullish_engulfing_and_breakout() -> None:
     candles = orderly_uptrend(28)
     candles.append(candle(28, 106.2, 105.2, volume=120))
@@ -57,6 +64,32 @@ def test_strong_bearish_engulfing_emits_an_exit_signal() -> None:
     assert any(pattern.key == "bearish_engulfing" for pattern in signal.patterns)
     assert signal.side is SignalSide.SELL
     assert next(item for item in signal.filters if item.key == "bearish_veto").passed is False
+
+
+def test_confirmed_downtrend_forces_long_portfolio_risk_off() -> None:
+    signal = NexusAIStrategy().generate_signal("BTCUSDT", orderly_downtrend())
+
+    assert signal.market_regime is MarketRegime.TRENDING_DOWN
+    assert signal.side is SignalSide.SELL
+    assert signal.confidence >= 0.88
+    assert "düşüş rejimi" in signal.explanation
+
+
+def test_falling_candles_are_not_bought_as_an_unconfirmed_pullback() -> None:
+    candles = orderly_uptrend()
+    previous_close = candles[-1].close
+    candles.extend(
+        [
+            candle(60, previous_close + 0.05, previous_close - 0.45, volume=130),
+            candle(61, previous_close - 0.40, previous_close - 0.90, volume=130),
+        ]
+    )
+
+    signal = NexusAIStrategy().generate_signal("BTCUSDT", candles)
+
+    assert signal.side is not SignalSide.BUY
+    setup_filter = next(item for item in signal.filters if item.key == "setup")
+    assert setup_filter.passed is False
 
 
 def test_adx_direction_recognizes_orderly_uptrend() -> None:

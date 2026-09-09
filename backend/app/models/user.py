@@ -39,7 +39,7 @@ class User(Base):
     strategy_macd_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     strategy_stoch_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     mtf_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    trailing_stop_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    trailing_stop_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     trailing_stop_distance_pct: Mapped[float] = mapped_column(Float, default=0.03)
     
     # Automation status
