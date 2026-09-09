@@ -1,13 +1,16 @@
 import asyncio
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes import trading as trading_routes
 from app.core.config import get_settings
+from app.db.session import get_session_factory
 from app.main import app
 from app.market_data.offline import build_offline_candles, build_offline_tickers
 from app.market_data.schemas import Candle, CandleSeries, MarketTicker
+from app.models.trading import PaperPortfolio
 from app.trading.paper_broker import PaperBroker
 from app.trading.control import trading_control
 from app.trading.paper_trading import PaperTradingService
@@ -353,6 +356,46 @@ def test_activation_validation_blocks_automation_when_halted(monkeypatch: pytest
         assert "Activation validation failed" in response.json()["detail"]
     finally:
         trading_control.resume_paper_mode()
+
+
+def test_automation_start_caps_budget_to_current_equity(monkeypatch: pytest.MonkeyPatch) -> None:
+    use_offline_market_fixture(paper_trading_service, monkeypatch)
+    monkeypatch.setattr(
+        trading_routes,
+        "PaperTradingService",
+        lambda _settings: paper_trading_service,
+    )
+
+    async def skip_initial_cycle(**_kwargs):
+        return None
+
+    monkeypatch.setattr(trading_routes, "execute_trading_step_for_user", skip_initial_cycle)
+
+    session = get_session_factory()()
+    try:
+        session.add(
+            PaperPortfolio(
+                user_id=1,
+                initial_equity=1_000.0,
+                cash=999.76,
+                equity=999.76,
+                peak_equity=1_000.0,
+                current_exposure=0.0,
+                daily_pnl=0.0,
+                consecutive_losses=0,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/trading/automation/start?symbol=BTCUSDT&interval=1h&exchange=all&position_count=4&allocation_usd=1000"
+        )
+
+    assert response.status_code == 200
+    assert response.json()["allocation_usd"] == pytest.approx(999.76)
 
 
 def test_paper_trading_all_exchange_scan_can_close_position_at_take_profit() -> None:

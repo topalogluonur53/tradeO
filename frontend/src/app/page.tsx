@@ -1235,9 +1235,13 @@ function PaperTradingSection({
   const [allocationInput, setAllocationInput] = useState("");
   const [startDialogError, setStartDialogError] = useState<string | null>(null);
 
+  const availableBudget = portfolio ? Math.max(0, portfolio.equity) : 0;
+
   const openStartDialog = () => {
     setPositionCountInput(String(automation?.position_count ?? 3));
-    setAllocationInput(String(automation?.allocation_usd || portfolio?.cash || portfolio?.initial_equity || 10000));
+    const configuredBudget = automation?.allocation_usd || portfolio?.initial_equity || 10000;
+    const safeBudget = portfolio ? Math.min(configuredBudget, availableBudget) : configuredBudget;
+    setAllocationInput(String(Number(safeBudget.toFixed(2))));
     setStartDialogError(null);
     setShowStartDialog(true);
   };
@@ -1253,12 +1257,16 @@ function PaperTradingSection({
       setStartDialogError("Geçerli bir toplam dolar bütçesi girin.");
       return;
     }
-    if (portfolio && allocationUsd > portfolio.equity) {
-      setStartDialogError(`Bütçe mevcut bakiyeyi aşamaz (${formatMoney(portfolio.equity)}).`);
+    if (portfolio && availableBudget <= 0) {
+      setStartDialogError("Botu başlatmak için kullanılabilir bakiye bulunmuyor.");
       return;
     }
+    const safeAllocationUsd = portfolio ? Math.min(allocationUsd, availableBudget) : allocationUsd;
+    if (portfolio && safeAllocationUsd !== allocationUsd) {
+      setAllocationInput(String(Number(safeAllocationUsd.toFixed(2))));
+    }
     setShowStartDialog(false);
-    await onToggleAutomation({ positionCount, allocationUsd });
+    await onToggleAutomation({ positionCount, allocationUsd: safeAllocationUsd });
   };
 
   const handleCapitalReset = async () => {
@@ -1316,6 +1324,7 @@ function PaperTradingSection({
                 <input
                   type="number"
                   min="1"
+                  max={availableBudget || undefined}
                   step="50"
                   value={allocationInput}
                   onChange={(event) => setAllocationInput(event.target.value)}
@@ -1325,6 +1334,7 @@ function PaperTradingSection({
               <div className="rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-sm text-textMuted">
                 Pozisyon başına eşit hedef: <span className="font-black text-textPrimary">{formatMoney((Number(allocationInput.replace(",", ".")) || 0) / Math.max(Number(positionCountInput) || 1, 1))}</span>
               </div>
+              {portfolio ? <p className="text-xs leading-5 text-textMuted">Kullanılabilir bakiye: <span className="font-bold text-textPrimary">{formatMoney(availableBudget)}</span>. Daha yüksek bir tutar girilirse bot başlatılırken otomatik olarak bu değere ayarlanır.</p> : null}
               {startDialogError ? <p className="text-sm text-rose-200">{startDialogError}</p> : null}
               <p className="text-xs leading-5 text-textMuted">Risk limitleri, stop-loss ve kullanılabilir nakit güvenlik sınırları yine uygulanır. Bu değer toplam bütçedir; bot yeni pozisyonlara eşit pay ayırır.</p>
               <div className="flex justify-end gap-2">

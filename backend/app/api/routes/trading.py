@@ -211,16 +211,21 @@ async def start_automation(
     auto_state = get_or_create_automation_state(db, current_user)
     portfolio = get_or_create_portfolio(db, current_user)
     selected_position_count = position_count if position_count is not None else auto_state.position_count
-    selected_allocation = (
+    requested_allocation = (
         allocation_usd
         if allocation_usd is not None
         else auto_state.allocation_usd or portfolio.cash
     )
-    if selected_allocation > portfolio.equity:
+    # Fees and PnL can make the displayed balance slightly lower than the
+    # previously configured budget. Starting the bot should use the safe
+    # amount that is available now instead of failing on that mismatch.
+    available_budget = max(0.0, portfolio.equity)
+    if available_budget <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=f"Toplam pozisyon bütçesi mevcut equity değerini aşamaz ({portfolio.equity:.2f} USD).",
+            detail="Botu başlatmak için kullanılabilir bakiye bulunmuyor.",
         )
+    selected_allocation = min(requested_allocation, available_budget)
 
     service = PaperTradingService(get_settings())
     validation = await service.validate_activation(
